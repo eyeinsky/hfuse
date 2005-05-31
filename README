@@ -1,0 +1,6 @@
+HelloFS seems to work with:
+* Linux 2.4.26-1-386
+* The Glorious Glasgow Haskell Compilation System, version 6.2.2
+* fuse-2.1
+
+BindFS (?) is known to have a deadlock problem.
