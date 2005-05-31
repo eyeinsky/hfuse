@@ -29,6 +29,7 @@ module HFuse
 
       module Foreign.C.Error
     , FuseOperations(..)
+    , defaultFuseOps
     , fuseMain -- :: FuseOperations -> (Exception -> IO Errno) -> IO ()
     , defaultExceptionHandler -- :: Exception -> IO Errno
       -- * Operations datatypes
@@ -371,6 +372,33 @@ data FuseOperations = FuseOperations
       , fuseRelease :: FilePath -> Int -> IO ()
       , fuseSynchronizeFile :: FilePath -> SyncType -> IO Errno
       }
+
+-- |Empty / default versions of the FUSE operations.
+defaultFuseOps :: FuseOperations
+defaultFuseOps =
+    FuseOperations { fuseGetFileStat = \_ -> return (Left eNOSYS)
+                   , fuseReadSymbolicLink = \_ -> return (Left eNOSYS)
+                   , fuseGetDirectoryContents = \_ ->  return (Left eNOSYS)
+                   , fuseCreateDevice = \_ _ _ _ ->  return eNOSYS
+                   , fuseCreateDirectory = \_ _ -> return eNOSYS
+                   , fuseRemoveLink = \_ -> return eNOSYS
+                   , fuseRemoveDirectory = \_ -> return eNOSYS
+                   , fuseCreateSymbolicLink = \_ _ -> return eNOSYS
+                   , fuseRename = \_ _ -> return eNOSYS
+                   , fuseCreateLink = \_ _ -> return eNOSYS
+                   , fuseSetFileMode = \_ _ -> return eNOSYS
+                   , fuseSetOwnerAndGroup = \_ _ _ -> return eNOSYS
+                   , fuseSetFileSize = \_ _ -> return eNOSYS
+                   , fuseSetFileTimes = \_ _ _ -> return eNOSYS
+                   , fuseOpen =  \_ _ _ -> return eNOSYS
+                   , fuseRead =   \_ _ _ -> return (Left eNOSYS)
+                   , fuseWrite = \_ _ _ -> return (Left eNOSYS)
+                   , fuseGetFileSystemStats = return (Left eNOSYS)
+                   , fuseFlush = \_ -> return eOK
+                   , fuseRelease = \_ _ -> return ()
+                   , fuseSynchronizeFile = \_ _ -> return eNOSYS
+                   }
+
 
 -- | Main function of FUSE.
 -- This is all that has to be called from the @main@ function. On top of

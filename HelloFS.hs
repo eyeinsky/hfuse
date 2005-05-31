@@ -11,30 +11,11 @@ main :: IO ()
 main = fuseMain helloFSOps defaultExceptionHandler
 
 helloFSOps :: FuseOperations
-helloFSOps =
-    FuseOperations { fuseGetFileStat = helloGetFileStat
-                   , fuseReadSymbolicLink = \_ -> return (Left eNOSYS)
-                   , fuseGetDirectoryContents = helloGetDirectoryContents
-                   , fuseCreateDevice = \_ _ _ _ ->  return eNOSYS
-                   , fuseCreateDirectory = \_ _ -> return eNOSYS
-                   , fuseRemoveLink = \_ -> return eNOSYS
-                   , fuseRemoveDirectory = \_ -> return eNOSYS
-                   , fuseCreateSymbolicLink = \_ _ -> return eNOSYS
-                   , fuseRename = \_ _ -> return eNOSYS
-                   , fuseCreateLink = \_ _ -> return eNOSYS
-                   , fuseSetFileMode = \_ _ -> return eNOSYS
-                   , fuseSetOwnerAndGroup = \_ _ _ -> return eNOSYS
-                   , fuseSetFileSize = \_ _ -> return eNOSYS
-                   , fuseSetFileTimes = \_ _ _ -> return eNOSYS
-                   , fuseOpen = helloOpen
-                   , fuseRead = helloRead
-                   , fuseWrite = \_ _ _ -> return (Left eNOSYS)
-                   , fuseGetFileSystemStats = return (Left eNOSYS)
-                   , fuseFlush = \_ -> return eOK
-                   , fuseRelease = \_ _ -> return ()
-                   , fuseSynchronizeFile = \_ _ -> return eNOSYS
-                   }
-
+helloFSOps = defaultFuseOps { fuseGetFileStat = helloGetFileStat
+                            , fuseGetDirectoryContents = helloGetDirectoryContents
+                            , fuseOpen        = helloOpen
+                            , fuseRead        = helloRead 
+                            }
 helloString :: String
 helloString = "Hello World, HFuse!\n"
 
