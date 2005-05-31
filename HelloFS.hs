@@ -5,7 +5,7 @@ import System.Posix.Types
 import System.Posix.Files
 import System.Posix.IO
 
-import System.Fuse
+import HFuse
 
 main :: IO ()
 main = fuseMain helloFSOps defaultExceptionHandler
@@ -85,7 +85,7 @@ helloGetFileStat _ =
     return $ Left eNOENT
 
 helloGetDirectoryContents :: FilePath -> IO (Either Errno [(FilePath, EntryType)])
-helloGetDir "/" =
+helloGetDirectoryContents "/" =
     return $ Right [ (".",  Directory)
                    , ("..", Directory)
                    , (tail helloPath, RegularFile) ]

@@ -42,6 +42,7 @@ clean:
 	rm -f *.o *.hi
 	rm -f HFuse.hs HFuse.hsc.ctypes HFuse_stub.*
 	rm -f *.imports
+	rm -f libHSfuse.a HelloFS BindFS
 
 distclean: clean
 	rm -f libHSfuse.a
