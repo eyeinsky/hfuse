@@ -66,6 +66,8 @@ import System.Posix.IO ( OpenMode(..), OpenFileFlags(..) )
 -- TODO: implement binding to fuse_invalidate
 -- TODO: bind fuse_*xattr
 
+#define FUSE_USE_VERSION 22
+
 #include <sys/statfs.h>
 #include <dirent.h>
 #include <fuse.h>
@@ -367,10 +369,15 @@ data FuseOperations = FuseOperations
                  -> IO (Either Errno (String, ByteCount))
       , fuseWrite :: FilePath -> String -> FileOffset
                   -> IO (Either Errno ByteCount)
-      , fuseGetFileSystemStats :: IO (Either Errno FileSystemStats)
+      , fuseGetFileSystemStats :: String -> IO (Either Errno FileSystemStats)
       , fuseFlush :: FilePath -> IO Errno
       , fuseRelease :: FilePath -> Int -> IO ()
       , fuseSynchronizeFile :: FilePath -> SyncType -> IO Errno
+      , fuseOpenDirectory :: FilePath -> IO Errno
+      , fuseReleaseDirectory :: FilePath -> IO Errno
+      , fuseSynchronizeDirectory :: FilePath -> SyncType -> IO Errno
+      , fuseInit :: IO ()
+      , fuseDestroy :: IO ()
       }
 
 -- |Empty / default versions of the FUSE operations.
@@ -393,10 +400,15 @@ defaultFuseOps =
                    , fuseOpen =  \_ _ _ -> return eNOSYS
                    , fuseRead =   \_ _ _ -> return (Left eNOSYS)
                    , fuseWrite = \_ _ _ -> return (Left eNOSYS)
-                   , fuseGetFileSystemStats = return (Left eNOSYS)
+                   , fuseGetFileSystemStats = \_ -> return (Left eNOSYS)
                    , fuseFlush = \_ -> return eOK
                    , fuseRelease = \_ _ -> return ()
                    , fuseSynchronizeFile = \_ _ -> return eNOSYS
+                   , fuseOpenDirectory = \_ -> return eNOSYS
+                   , fuseReleaseDirectory = \_ -> return eNOSYS
+                   , fuseSynchronizeDirectory = \_ _ -> return eNOSYS
+                   , fuseInit = return ()
+                   , fuseDestroy = return ()
                    }
 
 
@@ -426,39 +438,48 @@ defaultFuseOps =
 fuseMain :: FuseOperations -> (Exception -> IO Errno) -> IO ()
 fuseMain ops handler =
     allocaBytes (#size struct fuse_operations) $ \ pOps -> do
-      mkGetAttr wrapGetAttr   >>= (#poke struct fuse_operations, getattr)  pOps
-      mkReadLink wrapReadLink >>= (#poke struct fuse_operations, readlink) pOps 
-      mkGetDir wrapGetDir     >>= (#poke struct fuse_operations, getdir)   pOps 
-      mkMkNod wrapMkNod       >>= (#poke struct fuse_operations, mknod)    pOps 
-      mkMkDir wrapMkDir       >>= (#poke struct fuse_operations, mkdir)    pOps 
-      mkUnlink wrapUnlink     >>= (#poke struct fuse_operations, unlink)   pOps 
-      mkRmDir wrapRmDir       >>= (#poke struct fuse_operations, rmdir)    pOps 
-      mkSymLink wrapSymLink   >>= (#poke struct fuse_operations, symlink)  pOps 
-      mkRename wrapRename     >>= (#poke struct fuse_operations, rename)   pOps 
-      mkLink wrapLink         >>= (#poke struct fuse_operations, link)     pOps 
-      mkChMod wrapChMod       >>= (#poke struct fuse_operations, chmod)    pOps 
-      mkChOwn wrapChOwn       >>= (#poke struct fuse_operations, chown)    pOps 
-      mkTruncate wrapTruncate >>= (#poke struct fuse_operations, truncate) pOps 
-      mkUTime wrapUTime       >>= (#poke struct fuse_operations, utime)    pOps 
-      mkOpen wrapOpen         >>= (#poke struct fuse_operations, open)     pOps 
-      mkRead wrapRead         >>= (#poke struct fuse_operations, read)     pOps 
-      mkWrite wrapWrite       >>= (#poke struct fuse_operations, write)    pOps 
-      mkStatFS wrapStatFS     >>= (#poke struct fuse_operations, statfs)   pOps
-      mkFlush wrapFlush       >>= (#poke struct fuse_operations, flush)    pOps
-      mkRelease wrapRelease   >>= (#poke struct fuse_operations, release)  pOps 
-      mkFSync wrapFSync       >>= (#poke struct fuse_operations, fsync)    pOps
-      -- TODO: Implement this
+      mkGetAttr    wrapGetAttr    >>= (#poke struct fuse_operations, getattr)    pOps
+      mkReadLink   wrapReadLink   >>= (#poke struct fuse_operations, readlink)   pOps 
+      -- FIXME: getdir is deprecated
+      mkGetDir     wrapGetDir     >>= (#poke struct fuse_operations, getdir)     pOps
+      mkMkNod      wrapMkNod      >>= (#poke struct fuse_operations, mknod)      pOps 
+      mkMkDir      wrapMkDir      >>= (#poke struct fuse_operations, mkdir)      pOps 
+      mkUnlink     wrapUnlink     >>= (#poke struct fuse_operations, unlink)     pOps 
+      mkRmDir      wrapRmDir      >>= (#poke struct fuse_operations, rmdir)      pOps 
+      mkSymLink    wrapSymLink    >>= (#poke struct fuse_operations, symlink)    pOps 
+      mkRename     wrapRename     >>= (#poke struct fuse_operations, rename)     pOps 
+      mkLink       wrapLink       >>= (#poke struct fuse_operations, link)       pOps 
+      mkChMod      wrapChMod      >>= (#poke struct fuse_operations, chmod)      pOps 
+      mkChOwn      wrapChOwn      >>= (#poke struct fuse_operations, chown)      pOps 
+      mkTruncate   wrapTruncate   >>= (#poke struct fuse_operations, truncate)   pOps 
+      mkUTime      wrapUTime      >>= (#poke struct fuse_operations, utime)      pOps 
+      mkOpen       wrapOpen       >>= (#poke struct fuse_operations, open)       pOps 
+      mkRead       wrapRead       >>= (#poke struct fuse_operations, read)       pOps 
+      mkWrite      wrapWrite      >>= (#poke struct fuse_operations, write)      pOps 
+      mkStatFS     wrapStatFS     >>= (#poke struct fuse_operations, statfs)     pOps
+      mkFlush      wrapFlush      >>= (#poke struct fuse_operations, flush)      pOps
+      mkRelease    wrapRelease    >>= (#poke struct fuse_operations, release)    pOps 
+      mkFSync      wrapFSync      >>= (#poke struct fuse_operations, fsync)      pOps
+      -- TODO: Implement these
       (#poke struct fuse_operations, setxattr)    pOps nullPtr
       (#poke struct fuse_operations, getxattr)    pOps nullPtr
       (#poke struct fuse_operations, listxattr)   pOps nullPtr
       (#poke struct fuse_operations, removexattr) pOps nullPtr
+      mkOpenDir    wrapOpenDir    >>= (#poke struct fuse_operations, opendir)    pOps
+      -- TODO: Implement mkReadDir
+      -- mkReadDir    wrapReadDir    >>= (#poke struct fuse_operations, readdir)    pOps
+      (#poke struct fuse_operations, readdir)     pOps nullPtr
+      mkReleaseDir wrapReleaseDir >>= (#poke struct fuse_operations, releasedir) pOps
+      mkFSyncDir   wrapFSyncDir   >>= (#poke struct fuse_operations, fsyncdir)   pOps
+      mkInit       wrapInit       >>= (#poke struct fuse_operations, init)       pOps
+      mkDestroy    wrapDestroy    >>= (#poke struct fuse_operations, destroy)    pOps
       prog <- getProgName
       args <- getArgs
       let allArgs = (prog:args)
           argc    = length allArgs
       withMany withCString allArgs $ \ pAddrs  ->
           withArray pAddrs $ \ pArgv ->
-              fuse_main argc pArgv pOps      
+              do fuse_main_real argc pArgv pOps (#size struct fuse_operations)
     where fuseHandler :: Exception -> IO CInt
           fuseHandler e = handler e >>= return . unErrno
           wrapGetAttr :: CGetAttr
@@ -572,8 +593,9 @@ fuseMain ops handler =
                                       accessTime modificationTime
                  return (- errno)
           wrapOpen :: COpen
-          wrapOpen pFilePath flags = handle fuseHandler $
+          wrapOpen pFilePath pFuseFileInfo = handle fuseHandler $
               do filePath <- peekCString pFilePath
+                 (flags :: CInt) <- (#peek struct fuse_file_info, flags) pFuseFileInfo
                  let append    = (#const O_APPEND)   .&. flags == (#const O_APPEND)
                      noctty    = (#const O_NOCTTY)   .&. flags == (#const O_NOCTTY)
                      nonBlock  = (#const O_NONBLOCK) .&. flags == (#const O_NONBLOCK)
@@ -589,7 +611,7 @@ fuseMain ops handler =
                  (Errno errno) <- (fuseOpen ops) filePath how openFileFlags
                  return (- errno)
           wrapRead :: CRead
-          wrapRead pFilePath pBuf bufSiz off = handle fuseHandler $
+          wrapRead pFilePath pBuf bufSiz off pFuseFileInfo = handle fuseHandler $
               do filePath <- peekCString pFilePath
                  eitherRead <- (fuseRead ops) filePath bufSiz off
                  case eitherRead of
@@ -598,7 +620,7 @@ fuseMain ops handler =
                      do pokeCStringLen (pBuf, fromIntegral byteCount) bytes
                         return (fromIntegral byteCount)
           wrapWrite :: CWrite
-          wrapWrite pFilePath pBuf bufSiz off = handle fuseHandler $
+          wrapWrite pFilePath pBuf bufSiz off pFuseFileInfo = handle fuseHandler $
               do filePath <- peekCString pFilePath
                  buf <- peekCStringLen (pBuf, fromIntegral bufSiz)
                  eitherBytes <- (fuseWrite ops) filePath buf off
@@ -606,8 +628,9 @@ fuseMain ops handler =
                    Left  (Errno errno) -> return (- errno)
                    Right bytes         -> return (fromIntegral bytes)
           wrapStatFS :: CStatFS
-          wrapStatFS pStatFS = handle fuseHandler $
-            do eitherStatFS <- fuseGetFileSystemStats ops
+          wrapStatFS pStr pStatFS = handle fuseHandler $
+            do str <- peekCString pStr
+               eitherStatFS <- (fuseGetFileSystemStats ops) str
                case eitherStatFS of
                  Left (Errno errno) -> return (- errno)
                  Right stat         ->
@@ -628,21 +651,47 @@ fuseMain ops handler =
                           (fromIntegral (fsStatMaxNameLength stat) :: (#type long))
                       return 0
           wrapFlush :: CFlush
-          wrapFlush pFilePath = handle fuseHandler $
+          wrapFlush pFilePath pFuseFileInfo = handle fuseHandler $
               do filePath <- peekCString pFilePath
                  (Errno errno) <- (fuseFlush ops) filePath
                  return (- errno)
           wrapRelease :: CRelease
-          wrapRelease pFilePath flags = handle fuseHandler $
+          wrapRelease pFilePath pFuseFileInfo = handle fuseHandler $
               do filePath <- peekCString pFilePath
+                 flags <- (#peek struct fuse_file_info, flags) pFuseFileInfo
                  (fuseRelease ops) filePath flags
                  return 0
           wrapFSync :: CFSync
-          wrapFSync pFilePath isFullSync = handle fuseHandler $
+          wrapFSync pFilePath isFullSync pFuseFileInfo = handle fuseHandler $
               do filePath <- peekCString pFilePath
                  (Errno errno) <- (fuseSynchronizeFile ops)
                                       filePath (toEnum isFullSync)
                  return (- errno)
+          wrapOpenDir :: COpenDir
+          wrapOpenDir pFilePath pFuseFileInfo = handle fuseHandler $
+              do filePath <- peekCString pFilePath
+                 -- XXX: Should we pass flags from pFuseFileInfo?
+                 (Errno errno) <- (fuseOpenDirectory ops) filePath
+                 return (- errno)
+          -- TODO: wrapReadDir
+          wrapReleaseDir :: CReleaseDir
+          wrapReleaseDir pFilePath pFuseFileInfo = handle fuseHandler $
+              do filePath <- peekCString pFilePath
+                 (Errno errno) <- (fuseReleaseDirectory ops) filePath
+                 return (- errno)
+          wrapFSyncDir :: CFSyncDir
+          wrapFSyncDir pFilePath isFullSync pFuseFileInfo = handle fuseHandler $
+              do filePath <- peekCString pFilePath
+                 (Errno errno) <- (fuseSynchronizeDirectory ops)
+                                      filePath (toEnum isFullSync)
+                 return (- errno)
+          wrapInit :: CInit
+          wrapInit = handle (\e -> hPutStrLn stderr (show e) >> return nullPtr) $
+              do fuseInit ops
+                 return nullPtr
+          wrapDestroy :: CDestroy
+          wrapDestroy _ = handle (\e -> hPutStrLn stderr (show e)) $
+              do fuseDestroy ops
 
 -- | Default exception handler.
 -- Print the exception on error output and returns 'eFAULT'.
@@ -675,8 +724,8 @@ pokeCStringLen0 (pBuf, bufSize) src =
 ---  
 
 data CFuseOperations
-foreign import ccall threadsafe "fuse.h fuse_main"
-    fuse_main :: Int -> Ptr CString -> Ptr CFuseOperations -> IO ()
+foreign import ccall threadsafe "fuse.h fuse_main_real"
+    fuse_main_real :: Int -> Ptr CString -> Ptr CFuseOperations -> CSize -> IO ()
 
 data StructFuse
 foreign import ccall threadsafe "fuse.h fuse_get_context"
@@ -685,6 +734,8 @@ foreign import ccall threadsafe "fuse.h fuse_get_context"
 ---
 -- dynamic Haskell called from C
 ---
+
+data CFuseFileInfo -- struct fuse_file_info
 
 data CStat -- struct stat
 type CGetAttr = CString -> Ptr CStat -> IO CInt
@@ -744,34 +795,61 @@ type CUTime = CString -> Ptr CUTimBuf -> IO CInt
 foreign import ccall threadsafe "wrapper"
     mkUTime :: CUTime -> IO (FunPtr CUTime)
 
-type COpen = CString -> Int -> IO CInt
+type COpen = CString -> Ptr CFuseFileInfo -> IO CInt
 foreign import ccall threadsafe "wrapper"
     mkOpen :: COpen -> IO (FunPtr COpen)
 
-type CRead = CString -> CString -> CSize -> COff -> IO CInt
+type CRead = CString -> CString -> CSize -> COff -> Ptr CFuseFileInfo -> IO CInt
 foreign import ccall threadsafe "wrapper"
     mkRead :: CRead -> IO (FunPtr CRead)
 
-type CWrite = CString -> CString -> CSize -> COff -> IO CInt
+type CWrite = CString -> CString -> CSize -> COff -> Ptr CFuseFileInfo -> IO CInt
 foreign import ccall threadsafe "wrapper"
     mkWrite :: CWrite -> IO (FunPtr CWrite)
 
 data CStructStatFS -- struct fuse_stat_fs
-type CStatFS = Ptr CStructStatFS -> IO CInt
+type CStatFS = CString -> Ptr CStructStatFS -> IO CInt
 foreign import ccall threadsafe "wrapper"
     mkStatFS :: CStatFS -> IO (FunPtr CStatFS)
 
-type CFlush = CString -> IO CInt
+type CFlush = CString -> Ptr CFuseFileInfo -> IO CInt
 foreign import ccall threadsafe "wrapper"
     mkFlush :: CFlush -> IO (FunPtr CFlush)
 
-type CRelease = CString -> Int -> IO CInt
+type CRelease = CString -> Ptr CFuseFileInfo -> IO CInt
 foreign import ccall threadsafe "wrapper"
     mkRelease :: CRelease -> IO (FunPtr CRelease)
 
-type CFSync = CString -> Int -> IO CInt
+type CFSync = CString -> Int -> Ptr CFuseFileInfo -> IO CInt
 foreign import ccall threadsafe "wrapper"
     mkFSync :: CFSync -> IO (FunPtr CFSync) 
+
+-- XXX add *xattr bindings
+
+type COpenDir = CString -> Ptr CFuseFileInfo -> IO CInt
+foreign import ccall threadsafe "wrapper"
+    mkOpenDir :: COpenDir -> IO (FunPtr COpenDir)
+
+type CReadDir = CString -> Ptr CFillDirBuf -> Ptr CFillDir -> COff -> Ptr CFuseFileInfo -> IO CInt
+foreign import ccall threadsafe "wrapper"
+    mkReadDir :: CReadDir -> IO (FunPtr CReadDir)
+
+type CReleaseDir = CString -> Ptr CFuseFileInfo -> IO CInt
+foreign import ccall threadsafe "wrapper"
+    mkReleaseDir :: CReleaseDir -> IO (FunPtr CReleaseDir)
+
+type CFSyncDir = CString -> Int -> Ptr CFuseFileInfo -> IO CInt
+foreign import ccall threadsafe "wrapper"
+    mkFSyncDir :: CFSyncDir -> IO (FunPtr CFSyncDir)
+
+-- CInt because anything would be fine as we don't use them
+type CInit = IO (Ptr CInt)
+foreign import ccall threadsafe "wrapper"
+    mkInit :: CInit -> IO (FunPtr CInit)
+
+type CDestroy = Ptr CInt -> IO ()
+foreign import ccall threadsafe "wrapper"
+    mkDestroy :: CDestroy -> IO (FunPtr CDestroy)
 
 ---
 -- dynamic C called from Haskell
@@ -782,3 +860,7 @@ type CDirFil = Ptr CDirHandle -> CString -> Int -> IO CInt -- fuse_dirfil_t
 foreign import ccall threadsafe "dynamic"
     mkDirFil :: FunPtr CDirFil -> CDirFil
 
+data CFillDirBuf -- void
+type CFillDir = Ptr CFillDirBuf -> CString -> Ptr CStat -> COff -> IO CInt
+foreign import ccall threadsafe "dynamic"
+    mkFillDir :: FunPtr CFillDir -> CFillDir
