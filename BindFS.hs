@@ -174,8 +174,8 @@ bindWrite path buf off =
           else do res <- fdWrite fd buf
                   return (Right res)
 
-bindGetFileSystemStats :: IO (Either Errno FileSystemStats)
-bindGetFileSystemStats = return (Left eOK)
+bindGetFileSystemStats :: String -> IO (Either Errno FileSystemStats)
+bindGetFileSystemStats _ = return (Left eOK)
 
 bindFlush :: FilePath -> IO Errno
 bindFlush _ = return eOK
