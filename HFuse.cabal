@@ -1,15 +1,17 @@
 Name:                   HFuse
-Version:                1.0
+Version:                0.1
 License:                BSD3
 Author:                 Jérémy Bobbio
 Synopsis:               HFuse is a binding for the Linux FUSE library
 Homepage:               http://
 Category:               System
 Build-Depends:          base, posix
-Tested-With:            GHC 6.4
 Stability:              Experimental
-Exprosed-Modules:       System.Fuse
+exposed-Modules:        HFuse
+-- FIX: Remove this:
+ghc-options:            -fglasgow-exts
 Extensions:             ForeignFunctionInterface
 Includes:               sys/statfs.h, dirent.h, fuse.h, fcntl.h
 Include-Dirs:           /usr/include, /usr/local/include
 Extra-Libraries:        fuse
+Extra-Lib-Dirs:         /usr/local/lib
