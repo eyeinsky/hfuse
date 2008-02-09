@@ -128,6 +128,7 @@ data EntryType
     | RegularFile
     | SymbolicLink
     | Socket
+      deriving(Show)
 
 entryTypeToDT :: EntryType -> Int
 entryTypeToDT Unknown          = (#const DT_UNKNOWN)
