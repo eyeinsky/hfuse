@@ -5,7 +5,7 @@ Author:                 Jérémy Bobbio
 Synopsis:               HFuse is a binding for the Linux FUSE library
 Homepage:               http://
 Category:               System
-Build-Depends:          base, unix
+Build-Depends:          base, unix, bytestring
 Stability:              Experimental
 exposed-Modules:        HFuse
 -- FIX: Remove this:

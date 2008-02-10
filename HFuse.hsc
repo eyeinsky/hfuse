@@ -50,7 +50,10 @@ module HFuse
 
 import Prelude hiding ( Read )
 
-import Control.Exception ( Exception, handle )
+import Control.Exception as E( Exception, handle, finally )
+import qualified Data.ByteString.Char8    as B
+import qualified Data.ByteString.Internal as B
+import qualified Data.ByteString.Unsafe   as B
 import Foreign
 import Foreign.C
 import Foreign.C.Error
@@ -66,7 +69,7 @@ import System.Posix.IO ( OpenMode(..), OpenFileFlags(..) )
 -- TODO: implement binding to fuse_invalidate
 -- TODO: bind fuse_*xattr
 
-#define FUSE_USE_VERSION 22
+#define FUSE_USE_VERSION 26
 
 #include <sys/statfs.h>
 #include <dirent.h>
@@ -81,9 +84,7 @@ Each actions must return a POSIX error code, also called 'Errno' reflecting
 operation relult. For actions not using 'Either', you should return 'eOK' in case
 of success.
 
-Read and writes are done with Haskell 'String' type. Even if this representation
-is known to have drawbacks, the binding try to be coherent with current
-Haskell libraries.
+Read and writes are done with Haskell 'ByteString' type.
 
 -}
 
@@ -348,7 +349,7 @@ getFuseContext =
 -- 
 -- * 'fuseSynchronizeFile' implements @fsync(2)@.
 --
-data FuseOperations = FuseOperations
+data FuseOperations ot = FuseOperations
       { fuseGetFileStat :: FilePath -> IO (Either Errno FileStat)
       , fuseReadSymbolicLink :: FilePath -> IO (Either Errno FilePath)
       , fuseGetDirectoryContents :: FilePath
@@ -365,14 +366,14 @@ data FuseOperations = FuseOperations
       , fuseSetOwnerAndGroup :: FilePath -> UserID -> GroupID -> IO Errno
       , fuseSetFileSize :: FilePath -> FileOffset -> IO Errno
       , fuseSetFileTimes :: FilePath -> EpochTime -> EpochTime -> IO Errno
-      , fuseOpen :: FilePath -> OpenMode -> OpenFileFlags -> IO Errno
-      , fuseRead :: FilePath -> ByteCount -> FileOffset
-                 -> IO (Either Errno (String, ByteCount))
-      , fuseWrite :: FilePath -> String -> FileOffset
+      , fuseOpen :: FilePath -> OpenMode -> OpenFileFlags -> IO (Errno, ot)
+      , fuseRead :: FilePath -> ot -> ByteCount -> FileOffset
+                 -> IO (Either Errno B.ByteString)
+      , fuseWrite :: FilePath -> ot -> B.ByteString -> FileOffset
                   -> IO (Either Errno ByteCount)
       , fuseGetFileSystemStats :: String -> IO (Either Errno FileSystemStats)
-      , fuseFlush :: FilePath -> IO Errno
-      , fuseRelease :: FilePath -> Int -> IO ()
+      , fuseFlush :: FilePath -> ot -> IO Errno
+      , fuseRelease :: FilePath -> ot -> IO ()
       , fuseSynchronizeFile :: FilePath -> SyncType -> IO Errno
       , fuseOpenDirectory :: FilePath -> IO Errno
       , fuseReleaseDirectory :: FilePath -> IO Errno
@@ -382,7 +383,7 @@ data FuseOperations = FuseOperations
       }
 
 -- |Empty / default versions of the FUSE operations.
-defaultFuseOps :: FuseOperations
+defaultFuseOps :: FuseOperations ot
 defaultFuseOps =
     FuseOperations { fuseGetFileStat = \_ -> return (Left eNOSYS)
                    , fuseReadSymbolicLink = \_ -> return (Left eNOSYS)
@@ -398,11 +399,11 @@ defaultFuseOps =
                    , fuseSetOwnerAndGroup = \_ _ _ -> return eNOSYS
                    , fuseSetFileSize = \_ _ -> return eNOSYS
                    , fuseSetFileTimes = \_ _ _ -> return eNOSYS
-                   , fuseOpen =  \_ _ _ -> return eNOSYS
-                   , fuseRead =   \_ _ _ -> return (Left eNOSYS)
-                   , fuseWrite = \_ _ _ -> return (Left eNOSYS)
+                   , fuseOpen =   \_ _ _   -> return (eNOSYS, error "open failed, no data here")
+                   , fuseRead =   \_ _ _ _ -> return (Left eNOSYS)
+                   , fuseWrite =  \_ _ _ _ -> return (Left eNOSYS)
                    , fuseGetFileSystemStats = \_ -> return (Left eNOSYS)
-                   , fuseFlush = \_ -> return eOK
+                   , fuseFlush = \_ _ -> return eOK
                    , fuseRelease = \_ _ -> return ()
                    , fuseSynchronizeFile = \_ _ -> return eNOSYS
                    , fuseOpenDirectory = \_ -> return eNOSYS
@@ -436,7 +437,7 @@ defaultFuseOps =
 --   * registers the operations ;
 --
 --   * calls FUSE event loop.
-fuseMain :: FuseOperations -> (Exception -> IO Errno) -> IO ()
+fuseMain :: FuseOperations ot -> (Exception -> IO Errno) -> IO ()
 fuseMain ops handler =
     allocaBytes (#size struct fuse_operations) $ \ pOps -> do
       mkGetAttr    wrapGetAttr    >>= (#poke struct fuse_operations, getattr)    pOps
@@ -609,22 +610,27 @@ fuseMain ops handler =
                                                    , nonBlock = nonBlock
                                                    , trunc = False
                                                    }
-                 (Errno errno) <- (fuseOpen ops) filePath how openFileFlags
+                 (Errno errno,cval) <- (fuseOpen ops) filePath how openFileFlags
+                 sptr <- newStablePtr cval
+                 (#poke struct fuse_file_info, fh) pFuseFileInfo $ castStablePtrToPtr sptr
                  return (- errno)
           wrapRead :: CRead
           wrapRead pFilePath pBuf bufSiz off pFuseFileInfo = handle fuseHandler $
               do filePath <- peekCString pFilePath
-                 eitherRead <- (fuseRead ops) filePath bufSiz off
+                 cVal <- getFH pFuseFileInfo
+                 eitherRead <- (fuseRead ops) filePath cVal bufSiz off
                  case eitherRead of
                    Left (Errno errno) -> return (- errno)
-                   Right (bytes, byteCount)  -> 
-                     do pokeCStringLen (pBuf, fromIntegral byteCount) bytes
-                        return (fromIntegral byteCount)
+                   Right bytes  -> 
+                     do let len = fromIntegral bufSiz `min` B.length bytes
+                        bsToBuf pBuf bytes len
+                        return (fromIntegral len)
           wrapWrite :: CWrite
           wrapWrite pFilePath pBuf bufSiz off pFuseFileInfo = handle fuseHandler $
               do filePath <- peekCString pFilePath
-                 buf <- peekCStringLen (pBuf, fromIntegral bufSiz)
-                 eitherBytes <- (fuseWrite ops) filePath buf off
+                 cVal <- getFH pFuseFileInfo
+                 buf  <- B.packCStringLen (pBuf, fromIntegral bufSiz)
+                 eitherBytes <- (fuseWrite ops) filePath cVal buf off
                  case eitherBytes of
                    Left  (Errno errno) -> return (- errno)
                    Right bytes         -> return (fromIntegral bytes)
@@ -654,14 +660,16 @@ fuseMain ops handler =
           wrapFlush :: CFlush
           wrapFlush pFilePath pFuseFileInfo = handle fuseHandler $
               do filePath <- peekCString pFilePath
-                 (Errno errno) <- (fuseFlush ops) filePath
+                 cVal     <- getFH pFuseFileInfo
+                 (Errno errno) <- (fuseFlush ops) filePath cVal
                  return (- errno)
           wrapRelease :: CRelease
-          wrapRelease pFilePath pFuseFileInfo = handle fuseHandler $
+          wrapRelease pFilePath pFuseFileInfo = E.finally (handle fuseHandler $
               do filePath <- peekCString pFilePath
-                 flags <- (#peek struct fuse_file_info, flags) pFuseFileInfo
-                 (fuseRelease ops) filePath flags
-                 return 0
+                 cVal     <- getFH pFuseFileInfo
+--                 flags <- (#peek struct fuse_file_info, flags) pFuseFileInfo
+                 (fuseRelease ops) filePath cVal
+                 return 0) (delFH pFuseFileInfo)
           wrapFSync :: CFSync
           wrapFSync pFilePath isFullSync pFuseFileInfo = handle fuseHandler $
               do filePath <- peekCString pFilePath
@@ -851,6 +859,25 @@ foreign import ccall threadsafe "wrapper"
 type CDestroy = Ptr CInt -> IO ()
 foreign import ccall threadsafe "wrapper"
     mkDestroy :: CDestroy -> IO (FunPtr CDestroy)
+
+----
+
+bsToBuf :: Ptr a -> B.ByteString -> Int -> IO ()
+bsToBuf dst bs len = do
+  let l = fromIntegral $ min len $ B.length bs
+  B.unsafeUseAsCString bs $ \src -> B.memcpy (castPtr dst) (castPtr src) l
+  return ()
+
+-- Get filehandle
+getFH pFuseFileInfo = do
+  sptr <- (#peek struct fuse_file_info, fh) pFuseFileInfo
+  cVal <- deRefStablePtr $ castPtrToStablePtr sptr
+  return cVal
+
+delFH pFuseFileInfo = do
+  sptr <- (#peek struct fuse_file_info, fh) pFuseFileInfo
+  freeStablePtr $ castPtrToStablePtr sptr
+
 
 ---
 -- dynamic C called from Haskell
