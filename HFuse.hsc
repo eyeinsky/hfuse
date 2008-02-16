@@ -378,6 +378,7 @@ data FuseOperations ot = FuseOperations
       , fuseOpenDirectory :: FilePath -> IO Errno
       , fuseReleaseDirectory :: FilePath -> IO Errno
       , fuseSynchronizeDirectory :: FilePath -> SyncType -> IO Errno
+      , fuseAccess :: FilePath -> Int -> IO Errno -- FIXME present a nicer type to Haskell
       , fuseInit :: IO ()
       , fuseDestroy :: IO ()
       }
@@ -409,6 +410,7 @@ defaultFuseOps =
                    , fuseOpenDirectory = \_ -> return eNOSYS
                    , fuseReleaseDirectory = \_ -> return eNOSYS
                    , fuseSynchronizeDirectory = \_ _ -> return eNOSYS
+                   , fuseAccess = \_ _ -> return eNOSYS
                    , fuseInit = return ()
                    , fuseDestroy = return ()
                    }
@@ -473,6 +475,7 @@ fuseMain ops handler =
       (#poke struct fuse_operations, readdir)     pOps nullPtr
       mkReleaseDir wrapReleaseDir >>= (#poke struct fuse_operations, releasedir) pOps
       mkFSyncDir   wrapFSyncDir   >>= (#poke struct fuse_operations, fsyncdir)   pOps
+      mkAccess     wrapAccess     >>= (#poke struct fuse_operations, access)     pOps
       mkInit       wrapInit       >>= (#poke struct fuse_operations, init)       pOps
       mkDestroy    wrapDestroy    >>= (#poke struct fuse_operations, destroy)    pOps
       prog <- getProgName
@@ -694,6 +697,11 @@ fuseMain ops handler =
                  (Errno errno) <- (fuseSynchronizeDirectory ops)
                                       filePath (toEnum isFullSync)
                  return (- errno)
+          wrapAccess :: CAccess
+          wrapAccess pFilePath at = handle fuseHandler $
+              do filePath <- peekCString pFilePath
+                 (Errno errno) <- (fuseAccess ops) filePath (fromIntegral at)
+                 return (- errno)
           wrapInit :: CInit
           wrapInit = handle (\e -> hPutStrLn stderr (show e) >> return nullPtr) $
               do fuseInit ops
@@ -850,6 +858,10 @@ foreign import ccall threadsafe "wrapper"
 type CFSyncDir = CString -> Int -> Ptr CFuseFileInfo -> IO CInt
 foreign import ccall threadsafe "wrapper"
     mkFSyncDir :: CFSyncDir -> IO (FunPtr CFSyncDir)
+
+type CAccess = CString -> CInt -> IO CInt
+foreign import ccall threadsafe "wrapper"
+    mkAccess :: CAccess -> IO (FunPtr CAccess)
 
 -- CInt because anything would be fine as we don't use them
 type CInit = IO (Ptr CInt)
