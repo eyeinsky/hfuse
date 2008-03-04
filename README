@@ -1,6 +1,10 @@
-HelloFS seems to work with:
-* Linux 2.4.26
-* The Glorious Glasgow Haskell Compilation System, version 6.2.2
-* fuse-2.3
+Programs using HFuse should be compiled with -threaded.
 
-BindFS (?) is known to have a deadlock problem.
+HelloFS seems to work with:
+* Linux 2.6.24
+* The Glorious Glasgow Haskell Compilation System, version 6.8.2
+* fuse-2.6
+
+BindFS (?) is known to have a lurking deadlock problem.
+
+LiveFS is broken (from the old distribution).

@@ -1,5 +1,6 @@
 module Main where
 
+import qualified Data.ByteString.Char8 as B
 import Foreign.C.Error
 import System.Posix.Types
 import System.Posix.Files
@@ -7,17 +8,19 @@ import System.Posix.IO
 
 import HFuse
 
+type HT = ()
+
 main :: IO ()
 main = fuseMain helloFSOps defaultExceptionHandler
 
-helloFSOps :: FuseOperations
+helloFSOps :: FuseOperations HT
 helloFSOps = defaultFuseOps { fuseGetFileStat = helloGetFileStat
                             , fuseGetDirectoryContents = helloGetDirectoryContents
                             , fuseOpen        = helloOpen
                             , fuseRead        = helloRead 
                             }
-helloString :: String
-helloString = "Hello World, HFuse!\n"
+helloString :: B.ByteString
+helloString = B.pack "Hello World, HFuse!\n"
 
 helloPath :: FilePath
 helloPath = "/hello"
@@ -56,7 +59,7 @@ helloGetFileStat path | path == helloPath = do
                               , statFileOwner = fuseCtxUserID ctx
                               , statFileGroup = fuseCtxGroupID ctx
                               , statSpecialDeviceID = 0
-                              , statFileSize = fromIntegral $ length helloString
+                              , statFileSize = fromIntegral $ B.length helloString
                               , statBlocks = 1
                               , statAccessTime = 0
                               , statModificationTime = 0
@@ -72,18 +75,16 @@ helloGetDirectoryContents "/" =
                    , (tail helloPath, RegularFile) ]
 helloGetDirectoryContents _ = return (Left (eNOENT))
 
-helloOpen :: FilePath -> OpenMode -> OpenFileFlags -> IO Errno
+helloOpen :: FilePath -> OpenMode -> OpenFileFlags -> IO (Errno, HT)
 helloOpen path mode flags
     | path == helloPath = case mode of
-                            ReadOnly -> return eOK
-                            _        -> return eACCES
-    | otherwise         = return eNOENT
+                            ReadOnly -> return (eOK, ())
+                            _        -> return (eACCES, ())
+    | otherwise         = return (eNOENT, ())
 
 
-helloRead :: FilePath -> ByteCount -> FileOffset
-          -> IO (Either Errno (String, ByteCount))
-helloRead path byteCount offset
+helloRead :: FilePath -> HT -> ByteCount -> FileOffset -> IO (Either Errno B.ByteString)
+helloRead path _ byteCount offset
     | path == helloPath =
-        let count = max (length helloString) (fromIntegral byteCount)
-         in return $ Right (take count helloString, fromIntegral count)
+        return $ Right $ B.take (fromIntegral byteCount) $ B.drop (fromIntegral offset) helloString
     | otherwise         = return $ Left eNOENT

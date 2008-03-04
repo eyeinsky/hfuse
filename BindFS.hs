@@ -1,15 +1,15 @@
 module Main where
 
 import Control.Exception
+import qualified Data.ByteString.Char8 as B
 import Foreign.C.Error
 import System.Directory ( getDirectoryContents )
 import System.IO
-import System.Posix.Directory
-import System.Posix.Files
-import System.Posix.IO
-import System.Posix.Types
-
+import System.IO.Error
+import System.Posix
 import HFuse
+
+type HT = Fd
 
 main :: IO ()
 main = fuseMain bindFSOps (\e -> print e >> bindExceptionHandler e)
@@ -26,9 +26,9 @@ bindExceptionHandler (IOException ioe)
     | otherwise                = return eFAULT
 bindExceptionHandler e         = return eFAULT
 
-bindFSOps :: FuseOperations
+bindFSOps :: FuseOperations HT
 bindFSOps =
-    FuseOperations { fuseGetFileStat = bindGetFileStat
+    defaultFuseOps { fuseGetFileStat = bindGetFileStat
                    , fuseReadSymbolicLink = bindReadSymbolicLink
                    , fuseGetDirectoryContents = bindGetDirectoryContents
                    , fuseCreateDevice = bindCreateDevice
@@ -49,6 +49,8 @@ bindFSOps =
                    , fuseFlush = bindFlush
                    , fuseRelease = bindRelease
                    , fuseSynchronizeFile = bindSynchronizeFile
+                   , fuseOpenDirectory = bindOpenDir
+                   , fuseReleaseDirectory = bindReleaseDir
                    }
 
 fileStatusToEntryType :: FileStatus -> EntryType
@@ -62,7 +64,7 @@ fileStatusToEntryType status
     | isSocket          status = Socket
     | otherwise                = Unknown
 bindGetFileStat :: FilePath -> IO (Either Errno FileStat)
-bindGetFileStat path = 
+bindGetFileStat path =
     do status <- getSymbolicLinkStatus path
        return $ Right $ FileStat
                   { statEntryType        = fileStatusToEntryType status
@@ -147,41 +149,41 @@ bindSetFileTimes path accessTime modificationTime =
     do setFileTimes path accessTime modificationTime
        return eOK
 
-bindOpen :: FilePath -> OpenMode -> OpenFileFlags -> IO Errno
+bindOpen :: FilePath -> OpenMode -> OpenFileFlags -> IO (Errno, HT)
 bindOpen path mode flags =
     do fd <- openFd path mode Nothing flags
-       closeFd fd
-       return eOK
+       return (eOK, fd)
 
-bindRead :: FilePath -> ByteCount -> FileOffset
-         -> IO (Either Errno (String, ByteCount))
-bindRead path count off =
-    do fd <- openFd path ReadOnly Nothing defaultFileFlags
-       newOff <- fdSeek fd AbsoluteSeek off
+bindRead :: FilePath -> HT -> ByteCount -> FileOffset -> IO (Either Errno B.ByteString)
+bindRead path fd count off =
+    do newOff <- fdSeek fd AbsoluteSeek off
        if off /= newOff
-          then do closeFd fd
-                  return (Left eINVAL)
+          then do return (Left eINVAL)
           else do (content, bytesRead) <- fdRead fd count 
-                  return (Right (content, bytesRead))
+                  return (Right $ B.pack content)
 
-bindWrite :: FilePath -> String -> FileOffset -> IO (Either Errno ByteCount)
-bindWrite path buf off =
-    do fd <- openFd path WriteOnly Nothing defaultFileFlags
-       newOff <- fdSeek fd AbsoluteSeek off
+bindWrite :: FilePath -> HT -> B.ByteString -> FileOffset -> IO (Either Errno ByteCount)
+bindWrite path fd buf off =
+    do newOff <- fdSeek fd AbsoluteSeek off
        if off /= newOff
-          then do closeFd fd
-                  return (Left eINVAL)
-          else do res <- fdWrite fd buf
+          then do return (Left eINVAL)
+          else do res <- fdWrite fd $ B.unpack buf
                   return (Right res)
 
 bindGetFileSystemStats :: String -> IO (Either Errno FileSystemStats)
 bindGetFileSystemStats _ = return (Left eOK)
 
-bindFlush :: FilePath -> IO Errno
-bindFlush _ = return eOK
+bindFlush :: FilePath -> HT -> IO Errno
+bindFlush _ _ = return eOK
 
-bindRelease :: FilePath -> Int -> IO ()
-bindRelease _ _ = return ()
+bindRelease :: FilePath -> HT -> IO ()
+bindRelease _ fd = closeFd fd
 
 bindSynchronizeFile :: FilePath -> SyncType -> IO Errno
 bindSynchronizeFile _ _ = return eOK
+
+bindOpenDir :: FilePath -> IO Errno
+bindOpenDir _ = return eOK
+
+bindReleaseDir :: FilePath -> IO Errno
+bindReleaseDir _ = return eOK
