@@ -278,109 +278,116 @@ getFuseContext =
 --
 -- Each field is named against 'System.Posix' names. Matching Linux system calls
 -- are also given as a reference.
---
--- * 'fuseGetFileStat' implements
---   'System.Posix.Files.getSymbolicLinkStatus' operation (POSIX @lstat(2)@).
---
--- * 'fuseReadSymbolicLink' implements
---   'System.Posix.Files.readSymbolicLink' operation (POSIX @readlink(2)@).
---   The returned 'FilePath' might be truncated depending on caller
---   buffer size.
---
--- * 'fuseGetDirectoryContents' implements
---   'System.Directory.getDirectoryContents' (POSIX @readddir(2)@).
---
--- * 'fuseCreateDevice' implements 'System.Posix.Files.createDevice'
---   (POSIX @mknod(2)@).
---   This function will also be called for regular file creation.
---
--- * 'fuseCreateDirectory' implements 'System.Posix.Directory.createDirectory'
---   (POSIX @mkdir(2)@).
---
--- * 'fuseRemoveLink' implements 'System.Posix.Files.removeLink'
---   (POSIX @unlink(2)@).
---
--- * 'fuseRemoveDirectory' implements 'System.Posix.Directory.removeDirectory'
---   (POSIX @rmdir(2)@).
---
--- * 'fuseCreateSymbolicLink' implements
---   'System.Posix.Files.createSymbolicLink' (POSIX @symlink(2)@).
---
--- * 'fuseRename' implements 'System.Posix.Files.rename' (POSIX @rename(2)@).
---
--- * 'fuseCreateLink' implements 'System.Posix.Files.createLink'
---   (POSIX @link(2)@).
---
--- * 'fuseSetFileMode' implements 'System.Posix.Files.setFileMode'
---   (POSIX @chmod(2)@).
---
--- * 'fuseSetOwnerAndGroup' implements 'System.Posix.Files.setOwnerAndGroup'
---   (POSIX @chown(2)@).
---
--- * 'fuseSetFileSize' implements 'System.Posix.Files.setFileSize'
---   (POSIX @truncate(2)@).
---
--- * 'fuseSetFileTimes' implements 'System.Posix.Files.setFileTimes'
---   (POSIX @utime(2)@).
---
--- * 'fuseOpen' implements 'System.Posix.Files.openFd'
---   (POSIX @open(2)@), but this does not actually returns a file handle
---    but 'eOK' if the operation is permitted with the given flags.
---    No creation, exclusive access or truncating flags will be passed.
---
--- * 'fuseRead' implements Unix98 @pread(2)@. It differs
---   from 'System.Posix.Files.fdRead' by the explicit 'FileOffset' argument.
---   
--- * 'fuseWrite' implements Unix98 @pwrite(2)@. It differs
---   from 'System.Posix.Files.fdWrite' by the explicit 'FileOffset' argument.
--- 
--- * 'fuseGetFileSystemStats' implements @statfs(2)@. 
---
--- * 'fuseFlush' is called when @close(2)@ has been called on an open file.
---   Note: this does not mean that the file is released.  This function may be
---   called more than once for each @open(2)@.  The return value is passed on
---   to the @close(2)@ system call.
---
--- * 'fuseRelease' is called when an open file has all file descriptors closed
---   and all memory mappings unmapped.  For every @open@ call there will be
---   exactly one @release@ call with the same flags.  It is possible to have
---   a file opened more than once, in which case only the last release will
---   mean, that no more reads or writes will happen on the file.
--- 
--- * 'fuseSynchronizeFile' implements @fsync(2)@.
---
 data FuseOperations ot = FuseOperations
-      { fuseGetFileStat :: FilePath -> IO (Either Errno FileStat)
-      , fuseReadSymbolicLink :: FilePath -> IO (Either Errno FilePath)
-      , fuseGetDirectoryContents :: FilePath
-                                 -> IO (Either Errno [(FilePath, EntryType)])
-      , fuseCreateDevice :: FilePath -> EntryType -> FileMode
-                         -> DeviceID -> IO Errno
-      , fuseCreateDirectory :: FilePath -> FileMode -> IO Errno
-      , fuseRemoveLink :: FilePath -> IO Errno
-      , fuseRemoveDirectory :: FilePath -> IO Errno
-      , fuseCreateSymbolicLink :: FilePath -> FilePath -> IO Errno
-      , fuseRename :: FilePath -> FilePath -> IO Errno
-      , fuseCreateLink :: FilePath -> FilePath -> IO Errno
-      , fuseSetFileMode :: FilePath -> FileMode -> IO Errno
-      , fuseSetOwnerAndGroup :: FilePath -> UserID -> GroupID -> IO Errno
-      , fuseSetFileSize :: FilePath -> FileOffset -> IO Errno
-      , fuseSetFileTimes :: FilePath -> EpochTime -> EpochTime -> IO Errno
-      , fuseOpen :: FilePath -> OpenMode -> OpenFileFlags -> IO (Errno, ot)
-      , fuseRead :: FilePath -> ot -> ByteCount -> FileOffset
-                 -> IO (Either Errno B.ByteString)
-      , fuseWrite :: FilePath -> ot -> B.ByteString -> FileOffset
-                  -> IO (Either Errno ByteCount)
-      , fuseGetFileSystemStats :: String -> IO (Either Errno FileSystemStats)
-      , fuseFlush :: FilePath -> ot -> IO Errno
-      , fuseRelease :: FilePath -> ot -> IO ()
-      , fuseSynchronizeFile :: FilePath -> SyncType -> IO Errno
-      , fuseOpenDirectory :: FilePath -> IO Errno
-      , fuseReleaseDirectory :: FilePath -> IO Errno
-      , fuseSynchronizeDirectory :: FilePath -> SyncType -> IO Errno
-      , fuseAccess :: FilePath -> Int -> IO Errno -- FIXME present a nicer type to Haskell
-      , fuseInit :: IO ()
-      , fuseDestroy :: IO ()
+      { -- | Implements 'System.Posix.Files.getSymbolicLinkStatus' operation
+        --   (POSIX @lstat(2)@).
+        fuseGetFileStat :: FilePath -> IO (Either Errno FileStat),
+
+        -- | Implements 'System.Posix.Files.readSymbolicLink' operation (POSIX
+        --   @readlink(2)@).  The returned 'FusePath' might be truncated
+        --   depending on caller buffer size.
+        fuseReadSymbolicLink :: FilePath -> IO (Either Errno FilePath),
+
+        fuseGetDirectoryContents :: FilePath
+                                 -> IO (Either Errno [(FilePath, EntryType)]),
+
+        -- | Implements 'System.Posix.Files.createDevice' (POSIX @mknod(2)@).
+        --   This function will also be called for regular file creation.
+        fuseCreateDevice :: FilePath -> EntryType -> FileMode
+                         -> DeviceID -> IO Errno,
+
+        -- | Implements 'System.Posix.Directory.createDirectory' (POSIX
+        --   @mkdir(2)@).
+        fuseCreateDirectory :: FilePath -> FileMode -> IO Errno,
+
+        -- | Implements 'System.Posix.Files.removeLink' (POSIX @unlink(2)@).
+        fuseRemoveLink :: FilePath -> IO Errno,
+
+        -- | Implements 'System.Posix.Directory.removeDirectory' (POSIX
+        --   @rmdir(2)@).
+        fuseRemoveDirectory :: FilePath -> IO Errno,
+
+        -- | Implements 'System.Posix.Files.createSymbolicLink' (POSIX
+        --   @symlink(2)@).
+        fuseCreateSymbolicLink :: FilePath -> FilePath -> IO Errno,
+
+        -- | Implements 'System.Posix.Files.rename' (POSIX @rename(2)@).
+        fuseRename :: FilePath -> FilePath -> IO Errno,
+
+        -- | Implements 'System.Posix.Files.createLink' (POSIX @link(2)@).
+        fuseCreateLink :: FilePath -> FilePath -> IO Errno,
+
+        -- | Implements 'System.Posix.Files.setFileMode' (POSIX @chmod(2)@).
+        fuseSetFileMode :: FilePath -> FileMode -> IO Errno,
+
+        -- | Implements 'System.Posix.Files.setOwnerAndGroup' (POSIX
+        --   @chown(2)@).
+        fuseSetOwnerAndGroup :: FilePath -> UserID -> GroupID -> IO Errno,
+
+        -- | Implements 'System.Posix.Files.setFileSize' (POSIX @truncate(2)@).
+        fuseSetFileSize :: FilePath -> FileOffset -> IO Errno,
+
+        -- | Implements 'System.Posix.Files.setFileTimes'
+        --   (POSIX @utime(2)@).
+        fuseSetFileTimes :: FilePath -> EpochTime -> EpochTime -> IO Errno,
+
+        -- | Implements 'System.Posix.Files.openFd'
+        --   (POSIX @open(2)@), but this does not actually returns a file handle
+        --    but 'eOK' if the operation is permitted with the given flags.
+        --    No creation, exclusive access or truncating flags will be passed.
+        fuseOpen :: FilePath -> OpenMode -> OpenFileFlags -> IO (Errno, ot),
+
+        -- | Implements Unix98 @pread(2)@. It differs from
+        --   'System.Posix.Files.fdRead' by the explicit 'FileOffset' argument.
+        --   The @fuse.h@ documentation stipulates that this \"should return
+        --   exactly the number of bytes requested except on EOF or error,
+        --   otherwise the rest of the data will be substituted with zeroes.\"
+        fuseRead :: FilePath -> ot -> ByteCount -> FileOffset
+                 -> IO (Either Errno B.ByteString),
+
+        -- | Implements Unix98 @pwrite(2)@. It differs
+        --   from 'System.Posix.Files.fdWrite' by the explicit 'FileOffset' argument.
+        fuseWrite :: FilePath -> ot -> B.ByteString -> FileOffset
+                  -> IO (Either Errno ByteCount),
+
+        -- | Implements @statfs(2)@.
+        fuseGetFileSystemStats :: String -> IO (Either Errno FileSystemStats),
+
+        -- | Called when @close(2)@ has been called on an open file.
+        --   Note: this does not mean that the file is released.  This function may be
+        --   called more than once for each @open(2)@.  The return value is passed on
+        --   to the @close(2)@ system call.
+        fuseFlush :: FilePath -> ot -> IO Errno,
+
+        -- | Called when an open file has all file descriptors closed
+        --   and all memory mappings unmapped.  For every @open@ call there will be
+        --   exactly one @release@ call with the same flags.  It is possible to have
+        --   a file opened more than once, in which case only the last release will
+        --   mean, that no more reads or writes will happen on the file.
+        fuseRelease :: FilePath -> ot -> IO (),
+
+        -- | Implements @fsync(2)@.
+        fuseSynchronizeFile :: FilePath -> SyncType -> IO Errno,
+
+        -- | Implements @opendir(3)@.  This method should check if the open
+        --   operation is permitted for this directory.
+        fuseOpenDirectory :: FilePath -> IO Errno,
+
+        -- | Implements @closedir(3)@.
+        fuseReleaseDirectory :: FilePath -> IO Errno,
+
+        -- | Synchronize the directory's contents; analogous to
+        --   'fuseSynchronizeFile'.
+        fuseSynchronizeDirectory :: FilePath -> SyncType -> IO Errno,
+
+        fuseAccess :: FilePath -> Int -> IO Errno, -- FIXME present a nicer type to Haskell
+
+        -- | Initializes the filesystem.  This is called before all other
+        --   operations.
+        fuseInit :: IO (),
+
+        -- | Called on filesystem exit to allow cleanup.
+        fuseDestroy :: IO ()
       }
 
 -- |Empty / default versions of the FUSE operations.
