@@ -463,6 +463,7 @@ fuseMain ops handler =
       mkChMod      wrapChMod      >>= (#poke struct fuse_operations, chmod)      pOps 
       mkChOwn      wrapChOwn      >>= (#poke struct fuse_operations, chown)      pOps 
       mkTruncate   wrapTruncate   >>= (#poke struct fuse_operations, truncate)   pOps 
+      -- TODO: Deprecated, use utimens() instead.
       mkUTime      wrapUTime      >>= (#poke struct fuse_operations, utime)      pOps 
       mkOpen       wrapOpen       >>= (#poke struct fuse_operations, open)       pOps 
       mkRead       wrapRead       >>= (#poke struct fuse_operations, read)       pOps 
