@@ -81,7 +81,7 @@ import System.Posix.IO ( OpenMode(..), OpenFileFlags(..) )
 by FUSE. Think like if you were implementing a file system inside the Linux kernel.
 
 Each actions must return a POSIX error code, also called 'Errno' reflecting
-operation relult. For actions not using 'Either', you should return 'eOK' in case
+operation result. For actions not using 'Either', you should return 'eOK' in case
 of success.
 
 Read and writes are done with Haskell 'ByteString' type.
@@ -92,7 +92,13 @@ Read and writes are done with Haskell 'ByteString' type.
       error.
 -}
 
--- | Used by 'fuseGetFileStat'.
+{- | Used by 'fuseGetFileStat'.  Corresponds to @struct stat@ from @stat.h@;
+     @st_dev@, @st_ino@ and @st_blksize@ are omitted, since (from the libfuse
+     documentation): \"the @st_dev@ and @st_blksize@ fields are ignored.  The
+     @st_ino@ field is ignored except if the use_ino mount option is given.\"
+
+     /TODO: at some point the inode field will probably be needed./
+-}
 data FileStat = FileStat { statEntryType :: EntryType
                          , statFileMode :: FileMode
                          , statLinkCount :: LinkCount
@@ -303,7 +309,7 @@ data FuseOperations ot = FuseOperations
         fuseGetFileStat :: FilePath -> IO (Either Errno FileStat),
 
         -- | Implements 'System.Posix.Files.readSymbolicLink' operation (POSIX
-        --   @readlink(2)@).  The returned 'FusePath' might be truncated
+        --   @readlink(2)@).  The returned 'FilePath' might be truncated
         --   depending on caller buffer size.
         fuseReadSymbolicLink :: FilePath -> IO (Either Errno FilePath),
 
