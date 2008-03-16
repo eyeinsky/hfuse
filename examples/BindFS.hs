@@ -30,7 +30,6 @@ bindFSOps :: FuseOperations HT
 bindFSOps =
     defaultFuseOps { fuseGetFileStat = bindGetFileStat
                    , fuseReadSymbolicLink = bindReadSymbolicLink
-                   , fuseGetDirectoryContents = bindGetDirectoryContents
                    , fuseCreateDevice = bindCreateDevice
                    , fuseCreateDirectory = bindCreateDirectory
                    , fuseRemoveLink = bindRemoveLink
@@ -49,8 +48,8 @@ bindFSOps =
                    , fuseFlush = bindFlush
                    , fuseRelease = bindRelease
                    , fuseSynchronizeFile = bindSynchronizeFile
-                   , fuseOpenDirectory = bindOpenDir
-                   , fuseReleaseDirectory = bindReleaseDir
+                   , fuseOpenDirectory = bindOpenDirectory
+                   , fuseReadDirectory = bindReadDirectory
                    }
 
 fileStatusToEntryType :: FileStatus -> EntryType
@@ -63,40 +62,50 @@ fileStatusToEntryType status
     | isRegularFile     status = RegularFile
     | isSocket          status = Socket
     | otherwise                = Unknown
+
+fileStatusToFileStat :: FileStatus -> FileStat
+fileStatusToFileStat status =
+    FileStat { statEntryType        = fileStatusToEntryType status
+             , statFileMode         = fileMode status
+             , statLinkCount        = linkCount status
+             , statFileOwner        = fileOwner status
+             , statFileGroup        = fileGroup status
+             , statSpecialDeviceID  = specialDeviceID status
+             , statFileSize         = fileSize status
+             -- fixme: 1024 is not always the size of a block
+             , statBlocks           = fromIntegral (fileSize status `div` 1024)
+             , statAccessTime       = accessTime status
+             , statModificationTime = modificationTime status
+             , statStatusChangeTime = statusChangeTime status
+             }
+
 bindGetFileStat :: FilePath -> IO (Either Errno FileStat)
 bindGetFileStat path =
     do status <- getSymbolicLinkStatus path
-       return $ Right $ FileStat
-                  { statEntryType        = fileStatusToEntryType status
-                  , statFileMode         = fileMode status
-                  , statLinkCount        = linkCount status
-                  , statFileOwner        = fileOwner status
-                  , statFileGroup        = fileGroup status
-                  , statSpecialDeviceID  = specialDeviceID status
-                  , statFileSize         = fileSize status
-                  , statBlocks           = fromIntegral
-                                               (fileSize status `div` 1024)
-                  , statAccessTime       = accessTime status
-                  , statModificationTime = modificationTime status
-                  , statStatusChangeTime = statusChangeTime status
-                  }
+       return $ Right $ fileStatusToFileStat status
 
 bindReadSymbolicLink :: FilePath -> IO (Either Errno FilePath)
 bindReadSymbolicLink path =
     do target <- readSymbolicLink path
        return (Right target)
 
-bindGetDirectoryContents :: FilePath -> IO (Either Errno [(FilePath, EntryType)])
-bindGetDirectoryContents path =
+bindOpenDirectory :: FilePath -> IO Errno
+bindOpenDirectory path =
+    do openDirStream path >>= closeDirStream
+       return eOK
+
+bindReadDirectory :: FilePath -> IO (Either Errno [(FilePath, FileStat)])
+bindReadDirectory path =
     do names <- getDirectoryContents path
        mapM pairType names >>= return . Right
     where pairType name =
               do status <- getSymbolicLinkStatus (path ++ "/" ++ name)
-                 return (name, fileStatusToEntryType status)
+                 return (name, fileStatusToFileStat status)
 
 bindCreateDevice :: FilePath -> EntryType -> FileMode -> DeviceID -> IO Errno
 bindCreateDevice path entryType mode dev =
-    do createDevice path (entryTypeToFileMode entryType `unionFileModes` mode) dev
+    do let combinedMode = entryTypeToFileMode entryType `unionFileModes` mode
+       createDevice path combinedMode dev
        return eOK
 
 bindCreateDirectory :: FilePath -> FileMode -> IO Errno
@@ -181,9 +190,3 @@ bindRelease _ fd = closeFd fd
 
 bindSynchronizeFile :: FilePath -> SyncType -> IO Errno
 bindSynchronizeFile _ _ = return eOK
-
-bindOpenDir :: FilePath -> IO Errno
-bindOpenDir _ = return eOK
-
-bindReleaseDir :: FilePath -> IO Errno
-bindReleaseDir _ = return eOK
