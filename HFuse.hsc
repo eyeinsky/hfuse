@@ -301,11 +301,15 @@ getFuseContext =
                             , fuseCtxProcessID = processID
                             }
 
--- | This record, given to 'fuseMain', binds each required file system operations.
+-- | This record, given to 'fuseMain', binds each required file system
+--   operations.
 --
--- Each field is named against 'System.Posix' names. Matching Linux system calls
--- are also given as a reference.
-data FuseOperations ot = FuseOperations
+--   Each field is named against 'System.Posix' names. Matching Linux system
+--   calls are also given as a reference.
+--
+--   @fh@ is the file handle type returned by 'fuseOpen' and subsequently passed
+--   to all other file operations.
+data FuseOperations fh = FuseOperations
       { -- | Implements 'System.Posix.Files.getSymbolicLinkStatus' operation
         --   (POSIX @lstat(2)@).
         fuseGetFileStat :: FilePath -> IO (Either Errno FileStat),
@@ -359,19 +363,19 @@ data FuseOperations ot = FuseOperations
         --   (POSIX @open(2)@), but this does not actually returns a file handle
         --    but 'eOK' if the operation is permitted with the given flags.
         --    No creation, exclusive access or truncating flags will be passed.
-        fuseOpen :: FilePath -> OpenMode -> OpenFileFlags -> IO (Errno, ot),
+        fuseOpen :: FilePath -> OpenMode -> OpenFileFlags -> IO (Errno, fh),
 
         -- | Implements Unix98 @pread(2)@. It differs from
         --   'System.Posix.Files.fdRead' by the explicit 'FileOffset' argument.
         --   The @fuse.h@ documentation stipulates that this \"should return
         --   exactly the number of bytes requested except on EOF or error,
         --   otherwise the rest of the data will be substituted with zeroes.\"
-        fuseRead :: FilePath -> ot -> ByteCount -> FileOffset
+        fuseRead :: FilePath -> fh -> ByteCount -> FileOffset
                  -> IO (Either Errno B.ByteString),
 
         -- | Implements Unix98 @pwrite(2)@. It differs
         --   from 'System.Posix.Files.fdWrite' by the explicit 'FileOffset' argument.
-        fuseWrite :: FilePath -> ot -> B.ByteString -> FileOffset
+        fuseWrite :: FilePath -> fh -> B.ByteString -> FileOffset
                   -> IO (Either Errno ByteCount),
 
         -- | Implements @statfs(2)@.
@@ -381,14 +385,14 @@ data FuseOperations ot = FuseOperations
         --   Note: this does not mean that the file is released.  This function may be
         --   called more than once for each @open(2)@.  The return value is passed on
         --   to the @close(2)@ system call.
-        fuseFlush :: FilePath -> ot -> IO Errno,
+        fuseFlush :: FilePath -> fh -> IO Errno,
 
         -- | Called when an open file has all file descriptors closed
         --   and all memory mappings unmapped.  For every @open@ call there will be
         --   exactly one @release@ call with the same flags.  It is possible to have
         --   a file opened more than once, in which case only the last release will
         --   mean, that no more reads or writes will happen on the file.
-        fuseRelease :: FilePath -> ot -> IO (),
+        fuseRelease :: FilePath -> fh -> IO (),
 
         -- | Implements @fsync(2)@.
         fuseSynchronizeFile :: FilePath -> SyncType -> IO Errno,
@@ -424,7 +428,7 @@ data FuseOperations ot = FuseOperations
       }
 
 -- |Empty / default versions of the FUSE operations.
-defaultFuseOps :: FuseOperations ot
+defaultFuseOps :: FuseOperations fh
 defaultFuseOps =
     FuseOperations { fuseGetFileStat = \_ -> return (Left eNOSYS)
                    , fuseReadSymbolicLink = \_ -> return (Left eNOSYS)
@@ -479,7 +483,7 @@ defaultFuseOps =
 --   * registers the operations ;
 --
 --   * calls FUSE event loop.
-fuseMain :: FuseOperations ot -> (Exception -> IO Errno) -> IO ()
+fuseMain :: FuseOperations fh -> (Exception -> IO Errno) -> IO ()
 fuseMain ops handler =
     allocaBytes (#size struct fuse_operations) $ \ pOps -> do
       mkGetAttr    wrapGetAttr    >>= (#poke struct fuse_operations, getattr)    pOps
