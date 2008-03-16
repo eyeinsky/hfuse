@@ -313,9 +313,6 @@ data FuseOperations ot = FuseOperations
         --   depending on caller buffer size.
         fuseReadSymbolicLink :: FilePath -> IO (Either Errno FilePath),
 
-        fuseGetDirectoryContents :: FilePath
-                                 -> IO (Either Errno [(FilePath, EntryType)]),
-
         -- | Implements 'System.Posix.Files.createDevice' (POSIX @mknod(2)@).
         --   This function will also be called for regular file creation.
         fuseCreateDevice :: FilePath -> EntryType -> FileMode
@@ -398,6 +395,11 @@ data FuseOperations ot = FuseOperations
         --   operation is permitted for this directory.
         fuseOpenDirectory :: FilePath -> IO Errno,
 
+        -- | Implements @readdir(3)@.  The entire contents of the directory
+        --   should be returned as a list of tuples (corresponding to the first
+        --   mode of operation documented in @fuse.h@).
+        fuseReadDirectory :: FilePath -> IO (Either Errno [(FilePath, FileStat)]),
+
         -- | Implements @closedir(3)@.
         fuseReleaseDirectory :: FilePath -> IO Errno,
 
@@ -424,7 +426,6 @@ defaultFuseOps :: FuseOperations ot
 defaultFuseOps =
     FuseOperations { fuseGetFileStat = \_ -> return (Left eNOSYS)
                    , fuseReadSymbolicLink = \_ -> return (Left eNOSYS)
-                   , fuseGetDirectoryContents = \_ ->  return (Left eNOSYS)
                    , fuseCreateDevice = \_ _ _ _ ->  return eNOSYS
                    , fuseCreateDirectory = \_ _ -> return eNOSYS
                    , fuseRemoveLink = \_ -> return eNOSYS
@@ -444,6 +445,7 @@ defaultFuseOps =
                    , fuseRelease = \_ _ -> return ()
                    , fuseSynchronizeFile = \_ _ -> return eNOSYS
                    , fuseOpenDirectory = \_ -> return eNOSYS
+                   , fuseReadDirectory = \_ -> return (Left eNOSYS)
                    , fuseReleaseDirectory = \_ -> return eNOSYS
                    , fuseSynchronizeDirectory = \_ _ -> return eNOSYS
                    , fuseAccess = \_ _ -> return eNOSYS
@@ -480,8 +482,8 @@ fuseMain ops handler =
     allocaBytes (#size struct fuse_operations) $ \ pOps -> do
       mkGetAttr    wrapGetAttr    >>= (#poke struct fuse_operations, getattr)    pOps
       mkReadLink   wrapReadLink   >>= (#poke struct fuse_operations, readlink)   pOps 
-      -- FIXME: getdir is deprecated
-      mkGetDir     wrapGetDir     >>= (#poke struct fuse_operations, getdir)     pOps
+      -- getdir is deprecated and thus unsupported
+      (#poke struct fuse_operations, getdir)    pOps nullPtr
       mkMkNod      wrapMkNod      >>= (#poke struct fuse_operations, mknod)      pOps 
       mkMkDir      wrapMkDir      >>= (#poke struct fuse_operations, mkdir)      pOps 
       mkUnlink     wrapUnlink     >>= (#poke struct fuse_operations, unlink)     pOps 
@@ -507,9 +509,7 @@ fuseMain ops handler =
       (#poke struct fuse_operations, listxattr)   pOps nullPtr
       (#poke struct fuse_operations, removexattr) pOps nullPtr
       mkOpenDir    wrapOpenDir    >>= (#poke struct fuse_operations, opendir)    pOps
-      -- TODO: Implement mkReadDir
-      -- mkReadDir    wrapReadDir    >>= (#poke struct fuse_operations, readdir)    pOps
-      (#poke struct fuse_operations, readdir)     pOps nullPtr
+      mkReadDir    wrapReadDir    >>= (#poke struct fuse_operations, readdir)    pOps
       mkReleaseDir wrapReleaseDir >>= (#poke struct fuse_operations, releasedir) pOps
       mkFSyncDir   wrapFSyncDir   >>= (#poke struct fuse_operations, fsyncdir)   pOps
       mkAccess     wrapAccess     >>= (#poke struct fuse_operations, access)     pOps
@@ -543,19 +543,7 @@ fuseMain ops handler =
                    Right target ->
                      do pokeCStringLen0 (pBuf, (fromIntegral bufSize)) target
                         return okErrno
-          wrapGetDir :: CGetDir
-          wrapGetDir pFilePath pDirHandle pDirFil = handle fuseHandler $
-              do filePath <- peekCString pFilePath
-                 let filler (entryFilePath, entryType) =
-                         withCString entryFilePath $ \ pEntryFilePath ->
-                             (mkDirFil pDirFil) pDirHandle pEntryFilePath
-                             (entryTypeToDT entryType) >>= return . Errno
-                 eitherContents <- (fuseGetDirectoryContents ops) filePath 
-                 case eitherContents of
-                   Left (Errno errno) -> return (- errno)
-                   Right contents     -> 
-                     do mapM_ filler contents
-                        return okErrno
+
           wrapMkNod :: CMkNod
           wrapMkNod pFilePath mode dev = handle fuseHandler $
               do filePath <- peekCString pFilePath
@@ -706,7 +694,26 @@ fuseMain ops handler =
                  -- XXX: Should we pass flags from pFuseFileInfo?
                  (Errno errno) <- (fuseOpenDirectory ops) filePath
                  return (- errno)
-          -- TODO: wrapReadDir
+
+          wrapReadDir :: CReadDir
+          wrapReadDir pFilePath pBuf pFillDir off pFuseFileInfo =
+            handle fuseHandler $ do
+              filePath <- peekCString pFilePath
+              let fillDir = mkFillDir pFillDir
+              let filler :: (FilePath, FileStat) -> IO ()
+                  filler (fileName, fileStat) =
+                    withCString fileName $ \ pFileName ->
+                      allocaBytes (#size struct stat) $ \ pFileStat ->
+                        do fileStatToCStat fileStat pFileStat
+                           fillDir pBuf pFileName pFileStat 0
+                           -- Ignoring return value of pFillDir, namely 1 if
+                           -- pBuff is full.
+                           return ()
+              eitherContents <- (fuseReadDirectory ops) filePath -- XXX fileinfo
+              case eitherContents of
+                Left (Errno errno) -> return (- errno)
+                Right contents     -> mapM filler contents >> return okErrno
+
           wrapReleaseDir :: CReleaseDir
           wrapReleaseDir pFilePath pFuseFileInfo = handle fuseHandler $
               do filePath <- peekCString pFilePath
@@ -785,10 +792,6 @@ foreign import ccall threadsafe "wrapper"
 type CReadLink = CString -> CString -> CSize -> IO CInt
 foreign import ccall threadsafe "wrapper"
     mkReadLink :: CReadLink -> IO (FunPtr CReadLink)
-
-type CGetDir = CString -> Ptr CDirHandle -> FunPtr CDirFil -> IO CInt
-foreign import ccall threadsafe "wrapper"
-    mkGetDir :: CGetDir -> IO (FunPtr CGetDir)
 
 type CMkNod = CString -> CMode -> CDev -> IO CInt
 foreign import ccall threadsafe "wrapper"
@@ -870,7 +873,8 @@ type COpenDir = CString -> Ptr CFuseFileInfo -> IO CInt
 foreign import ccall threadsafe "wrapper"
     mkOpenDir :: COpenDir -> IO (FunPtr COpenDir)
 
-type CReadDir = CString -> Ptr CFillDirBuf -> Ptr CFillDir -> COff -> Ptr CFuseFileInfo -> IO CInt
+type CReadDir = CString -> Ptr CFillDirBuf -> FunPtr CFillDir -> COff
+             -> Ptr CFuseFileInfo -> IO CInt
 foreign import ccall threadsafe "wrapper"
     mkReadDir :: CReadDir -> IO (FunPtr CReadDir)
 
