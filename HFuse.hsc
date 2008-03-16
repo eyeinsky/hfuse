@@ -76,6 +76,8 @@ import System.Posix.IO ( OpenMode(..), OpenFileFlags(..) )
 #include <fuse.h>
 #include <fcntl.h>
 
+#include "fuse_wrappers.h"
+
 {- $intro
 'FuseOperations' contains a field for each filesystem operations that can be called
 by FUSE. Think like if you were implementing a file system inside the Linux kernel.
@@ -521,7 +523,7 @@ fuseMain ops handler =
           argc    = length allArgs
       withMany withCString allArgs $ \ pAddrs  ->
           withArray pAddrs $ \ pArgv ->
-              do fuse_main_real argc pArgv pOps (#size struct fuse_operations)
+              do fuse_main_wrapper argc pArgv pOps
     where fuseHandler :: Exception -> IO CInt
           fuseHandler e = handler e >>= return . unErrno
           wrapGetAttr :: CGetAttr
@@ -770,8 +772,8 @@ pokeCStringLen0 (pBuf, bufSize) src =
 ---  
 
 data CFuseOperations
-foreign import ccall threadsafe "fuse.h fuse_main_real"
-    fuse_main_real :: Int -> Ptr CString -> Ptr CFuseOperations -> CSize -> IO ()
+foreign import ccall threadsafe "fuse_wrappers.h fuse_main_wrapper"
+    fuse_main_wrapper :: Int -> Ptr CString -> Ptr CFuseOperations -> IO ()
 
 data StructFuse
 foreign import ccall threadsafe "fuse.h fuse_get_context"
