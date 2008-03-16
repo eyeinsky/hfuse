@@ -718,7 +718,8 @@ fuseMain ops handler =
                  (Errno errno) <- (fuseAccess ops) filePath (fromIntegral at)
                  return (- errno)
           wrapInit :: CInit
-          wrapInit = handle (\e -> hPutStrLn stderr (show e) >> return nullPtr) $
+          wrapInit pFuseConnInfo =
+            handle (\e -> hPutStrLn stderr (show e) >> return nullPtr) $
               do fuseInit ops
                  return nullPtr
           wrapDestroy :: CDestroy
@@ -768,6 +769,7 @@ foreign import ccall threadsafe "fuse.h fuse_get_context"
 ---
 
 data CFuseFileInfo -- struct fuse_file_info
+data CFuseConnInfo -- struct fuse_conn_info
 
 data CStat -- struct stat
 type CGetAttr = CString -> Ptr CStat -> IO CInt
@@ -879,7 +881,7 @@ foreign import ccall threadsafe "wrapper"
     mkAccess :: CAccess -> IO (FunPtr CAccess)
 
 -- CInt because anything would be fine as we don't use them
-type CInit = IO (Ptr CInt)
+type CInit = Ptr CFuseConnInfo -> IO (Ptr CInt)
 foreign import ccall threadsafe "wrapper"
     mkInit :: CInit -> IO (FunPtr CInit)
 
