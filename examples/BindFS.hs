@@ -158,10 +158,10 @@ bindSetFileTimes path accessTime modificationTime =
     do setFileTimes path accessTime modificationTime
        return eOK
 
-bindOpen :: FilePath -> OpenMode -> OpenFileFlags -> IO (Errno, HT)
+bindOpen :: FilePath -> OpenMode -> OpenFileFlags -> IO (Either Errno HT)
 bindOpen path mode flags =
     do fd <- openFd path mode Nothing flags
-       return (eOK, fd)
+       return (Right fd)
 
 bindRead :: FilePath -> HT -> ByteCount -> FileOffset -> IO (Either Errno B.ByteString)
 bindRead path fd count off =

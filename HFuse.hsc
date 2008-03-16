@@ -359,11 +359,13 @@ data FuseOperations fh = FuseOperations
         --   (POSIX @utime(2)@).
         fuseSetFileTimes :: FilePath -> EpochTime -> EpochTime -> IO Errno,
 
-        -- | Implements 'System.Posix.Files.openFd'
-        --   (POSIX @open(2)@), but this does not actually returns a file handle
-        --    but 'eOK' if the operation is permitted with the given flags.
-        --    No creation, exclusive access or truncating flags will be passed.
-        fuseOpen :: FilePath -> OpenMode -> OpenFileFlags -> IO (Errno, fh),
+        -- | Implements 'System.Posix.Files.openFd' (POSIX @open(2)@).  On
+        --   success, returns 'Right' of a filehandle-like value that will be
+        --   passed to future file operations; on failure, returns 'Left' of the
+        --   appropriate 'Errno'.
+        --
+        --   No creation, exclusive access or truncating flags will be passed.
+        fuseOpen :: FilePath -> OpenMode -> OpenFileFlags -> IO (Either Errno fh),
 
         -- | Implements Unix98 @pread(2)@. It differs from
         --   'System.Posix.Files.fdRead' by the explicit 'FileOffset' argument.
@@ -443,7 +445,7 @@ defaultFuseOps =
                    , fuseSetOwnerAndGroup = \_ _ _ -> return eNOSYS
                    , fuseSetFileSize = \_ _ -> return eNOSYS
                    , fuseSetFileTimes = \_ _ _ -> return eNOSYS
-                   , fuseOpen =   \_ _ _   -> return (eNOSYS, error "open failed, no data here")
+                   , fuseOpen =   \_ _ _   -> return (Left eNOSYS)
                    , fuseRead =   \_ _ _ _ -> return (Left eNOSYS)
                    , fuseWrite =  \_ _ _ _ -> return (Left eNOSYS)
                    , fuseGetFileSystemStats = \_ -> return (Left eNOSYS)
@@ -628,10 +630,14 @@ fuseMain ops handler =
                                                    , nonBlock = nonBlock
                                                    , trunc = False
                                                    }
-                 (Errno errno,cval) <- (fuseOpen ops) filePath how openFileFlags
-                 sptr <- newStablePtr cval
-                 (#poke struct fuse_file_info, fh) pFuseFileInfo $ castStablePtrToPtr sptr
-                 return (- errno)
+                 result <- (fuseOpen ops) filePath how openFileFlags
+                 case result of
+                    Left (Errno errno) -> return (- errno)
+                    Right cval         -> do
+                        sptr <- newStablePtr cval
+                        (#poke struct fuse_file_info, fh) pFuseFileInfo $ castStablePtrToPtr sptr
+                        return okErrno
+
           wrapRead :: CRead
           wrapRead pFilePath pBuf bufSiz off pFuseFileInfo = handle fuseHandler $
               do filePath <- peekCString pFilePath

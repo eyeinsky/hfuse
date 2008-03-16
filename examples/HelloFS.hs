@@ -85,12 +85,12 @@ helloReadDirectory "/" = do
     where (_:helloName) = helloPath
 helloReadDirectory _ = return (Left (eNOENT))
 
-helloOpen :: FilePath -> OpenMode -> OpenFileFlags -> IO (Errno, HT)
+helloOpen :: FilePath -> OpenMode -> OpenFileFlags -> IO (Either Errno HT)
 helloOpen path mode flags
     | path == helloPath = case mode of
-                            ReadOnly -> return (eOK, ())
-                            _        -> return (eACCES, ())
-    | otherwise         = return (eNOENT, ())
+                            ReadOnly -> return (Right ())
+                            _        -> return (Left eACCES)
+    | otherwise         = return (Left eNOENT)
 
 
 helloRead :: FilePath -> HT -> ByteCount -> FileOffset -> IO (Either Errno B.ByteString)
