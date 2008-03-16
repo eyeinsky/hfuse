@@ -745,7 +745,7 @@ unErrno :: Errno -> CInt
 unErrno (Errno errno) = errno
 
 okErrno :: CInt
-okErrno = 0
+okErrno = unErrno eOK
 
 pokeCStringLen :: CStringLen -> String -> IO ()
 pokeCStringLen (pBuf, bufSize) src =
