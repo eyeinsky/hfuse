@@ -105,12 +105,31 @@ data FileStat = FileStat { statEntryType :: EntryType
                          , statModificationTime :: EpochTime
                          , statStatusChangeTime :: EpochTime
                          }
+    deriving Show
 
-{-  getattr() doesn't need to fill in the following fields:
-        st_ino
-        st_dev
-        st_blksize
--}
+{- FIXME: I don't know how to determine the alignment of struct stat without
+ - making unportable assumptions about the order of elements within it.  Hence,
+ - FileStat is not an instance of Storable.  But it should be, rather than this
+ - next function existing!
+ -}
+
+fileStatToCStat :: FileStat -> Ptr CStat -> IO ()
+fileStatToCStat stat pStat = do
+    let mode = (entryTypeToFileMode (statEntryType stat)
+             `unionFileModes`
+               (statFileMode stat `intersectFileModes` accessModes))
+    let block_count = (fromIntegral (statBlocks stat) :: (#type blkcnt_t))
+    (#poke struct stat, st_mode)   pStat mode
+    (#poke struct stat, st_nlink)  pStat (statLinkCount  stat)
+    (#poke struct stat, st_uid)    pStat (statFileOwner  stat)
+    (#poke struct stat, st_gid)    pStat (statFileGroup  stat)
+    (#poke struct stat, st_rdev)   pStat (statSpecialDeviceID stat)
+    (#poke struct stat, st_size)   pStat (statFileSize   stat)
+    (#poke struct stat, st_blocks) pStat block_count
+    (#poke struct stat, st_atime)  pStat (statAccessTime stat)
+    (#poke struct stat, st_mtime)  pStat (statModificationTime stat)
+    (#poke struct stat, st_ctime)  pStat (statStatusChangeTime stat)
+
 
 {-  readlink() should fill the buffer with a null terminated string.  The
     buffer size argument includes the space for the terminating null
@@ -505,25 +524,9 @@ fuseMain ops handler =
                  eitherFileStat <- (fuseGetFileStat ops) filePath
                  case eitherFileStat of
                    Left (Errno errno) -> return (- errno)
-                   Right stat         ->
-                     do (#poke struct stat, st_mode)   pStat
-                            (entryTypeToFileMode (statEntryType stat)
-                             `unionFileModes`
-                             (statFileMode stat `intersectFileModes` accessModes))
-                        (#poke struct stat, st_nlink)  pStat (statLinkCount  stat)
-                        (#poke struct stat, st_uid)    pStat (statFileOwner  stat)
-                        (#poke struct stat, st_gid)    pStat (statFileGroup  stat)
-                        (#poke struct stat, st_rdev)   pStat
-                            (statSpecialDeviceID stat)
-                        (#poke struct stat, st_size)   pStat (statFileSize   stat)
-                        (#poke struct stat, st_blocks) pStat
-                            (fromIntegral (statBlocks stat) :: (#type blkcnt_t))
-                        (#poke struct stat, st_atime)  pStat (statAccessTime stat)
-                        (#poke struct stat, st_mtime)  pStat
-                            (statModificationTime stat)
-                        (#poke struct stat, st_ctime)  pStat
-                            (statStatusChangeTime stat)
-                        return okErrno
+                   Right stat         -> do fileStatToCStat stat pStat
+                                            return okErrno
+
           wrapReadLink :: CReadLink
           wrapReadLink pFilePath pBuf bufSize = handle fuseHandler $
               do filePath <- peekCString pFilePath
