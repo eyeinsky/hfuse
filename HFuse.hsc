@@ -729,7 +729,7 @@ defaultExceptionHandler e = hPutStrLn stderr (show e) >> return eFAULT
 
 
 -----------------------------------------------------------------------------
--- Miscelaneous utilities
+-- Miscellaneous utilities
 
 unErrno :: Errno -> CInt
 unErrno (Errno errno) = errno
