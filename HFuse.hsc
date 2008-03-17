@@ -223,9 +223,6 @@ fileModeToEntryType mode
     argument, like the pread() and pwrite() system calls.  (NOTE:
     read() should always return the number of bytes requested, except
     at end of file)
-
-    TODO: String type was used to mimic System.Posix.IO but it should change
-          after inclusion of better I/O system in Haskell libraries.
 -}
 -- | Type used by the 'fuseGetFileSystemStats'.
 data FileSystemStats = FileSystemStats
