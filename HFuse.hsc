@@ -212,12 +212,6 @@ fileModeToEntryType mode
     creation of all non directory, non symlink nodes.
 -}
 
-{-  read(), write() are not passed a filehandle, but rather a
-    pathname.  The offset of the read and write is passed as the last
-    argument, like the pread() and pwrite() system calls.  (NOTE:
-    read() should always return the number of bytes requested, except
-    at end of file)
--}
 -- | Type used by the 'fuseGetFileSystemStats'.
 data FileSystemStats = FileSystemStats
     { fsStatBlockSize :: Integer
