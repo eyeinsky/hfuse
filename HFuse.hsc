@@ -212,12 +212,6 @@ fileModeToEntryType mode
     creation of all non directory, non symlink nodes.
 -}
 
-{-  open() should not return a filehandle, but 0 on success.  No
-    creation, or trunctation flags (O_CREAT, O_EXCL, O_TRUNC) will be
-    passed to open().  Open should only check if the operation is
-    permitted for the given flags.
--}
-
 {-  read(), write() are not passed a filehandle, but rather a
     pathname.  The offset of the read and write is passed as the last
     argument, like the pread() and pwrite() system calls.  (NOTE:
@@ -349,6 +343,8 @@ data FuseOperations fh = FuseOperations
         --   appropriate 'Errno'.
         --
         --   No creation, exclusive access or truncating flags will be passed.
+        --   This should check that the operation is permitted for the given
+        --   flags.
         fuseOpen :: FilePath -> OpenMode -> OpenFileFlags -> IO (Either Errno fh),
 
         -- | Implements Unix98 @pread(2)@. It differs from
