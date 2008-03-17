@@ -139,12 +139,6 @@ fileStatToCStat stat pStat = do
     (#poke struct stat, st_ctime)  pStat (statStatusChangeTime stat)
 
 
-{-  readlink() should fill the buffer with a null terminated string.  The
-    buffer size argument includes the space for the terminating null
-    character.  If the linkname is too long to fit in the buffer, it should
-    be truncated.  The return value should be 0 for success.
--}
-
 -- | The Unix type of a node in the filesystem.
 data EntryType
     = Unknown            -- ^ Unknown entry type
@@ -542,6 +536,8 @@ fuseMain ops handler =
                  case eitherTarget of
                    Left (Errno errno) -> return (- errno)
                    Right target ->
+                   -- This will truncate target if it's longer than the buffer
+                   -- can hold, which is correct according to fuse.h
                      do pokeCStringLen0 (pBuf, (fromIntegral bufSize)) target
                         return okErrno
 
