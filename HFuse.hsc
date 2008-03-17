@@ -239,9 +239,6 @@ data SyncType
     | DataSync
     -- ^ Synchronize only the file content.
     deriving (Eq, Enum)
-{-  fsync() has a boolean 'datasync' parameter which if TRUE then do
-    an fdatasync() operation.
--}
 
 
 -- | Returned by 'getFuseContext'.
