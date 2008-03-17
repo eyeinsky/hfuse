@@ -145,8 +145,7 @@ fileStatToCStat stat pStat = do
     be truncated.  The return value should be 0 for success.
 -}
 
--- | Used by 'fuseGetDirectoryContents' implementation to specify the type of
--- a directory entry.
+-- | The Unix type of a node in the filesystem.
 data EntryType
     = Unknown            -- ^ Unknown entry type
     | NamedPipe
