@@ -231,16 +231,6 @@ data FileSystemStats = FileSystemStats
     }
 
 
-{-  release() is called when an open file has:
-        1) all file descriptors closed
-        2)
-all memory mappings unmapped
-    This call need only be implemented if this information is required,
-    otherwise set this function to NULL.
-
-    TODO: Find out what these "flags" are (Int here).
--}
-
 -- | Used by 'fuseSynchronizeFile'.
 data SyncType
     = FullSync
@@ -363,11 +353,12 @@ data FuseOperations fh = FuseOperations
         --   to the @close(2)@ system call.
         fuseFlush :: FilePath -> fh -> IO Errno,
 
-        -- | Called when an open file has all file descriptors closed
-        --   and all memory mappings unmapped.  For every @open@ call there will be
-        --   exactly one @release@ call with the same flags.  It is possible to have
-        --   a file opened more than once, in which case only the last release will
-        --   mean, that no more reads or writes will happen on the file.
+        -- | Called when an open file has all file descriptors closed and all
+        -- memory mappings unmapped.  For every @open@ call there will be
+        -- exactly one @release@ call with the same flags.  It is possible to
+        -- have a file opened more than once, in which case only the last
+        -- release will mean that no more reads or writes will happen on the
+        -- file.
         fuseRelease :: FilePath -> fh -> IO (),
 
         -- | Implements @fsync(2)@.
@@ -667,6 +658,7 @@ fuseMain ops handler =
           wrapRelease pFilePath pFuseFileInfo = E.finally (handle fuseHandler $
               do filePath <- peekCString pFilePath
                  cVal     <- getFH pFuseFileInfo
+                 -- TODO: deal with these flags?
 --                 flags <- (#peek struct fuse_file_info, flags) pFuseFileInfo
                  (fuseRelease ops) filePath cVal
                  return 0) (delFH pFuseFileInfo)
