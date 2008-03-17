@@ -214,12 +214,6 @@ fileModeToEntryType mode
     | fileType == socketMode           = Socket
     where fileType = mode .&. (#const S_IFMT)
 
-{-  getdir() is the opendir(), readdir(), ..., closedir() sequence
-    in one call. For each directory entry the filldir parameter should
-    be called. 
--}
-
-
 {-
     There is no create() operation, mknod() will be called for
     creation of all non directory, non symlink nodes.
