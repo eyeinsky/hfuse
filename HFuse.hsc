@@ -231,7 +231,7 @@ data FileSystemStats = FileSystemStats
     }
 
 
--- | Used by 'fuseSynchronizeFile'.
+-- | Used by 'fuseSynchronizeFile' and 'fuseSynchronizeDirectory'.
 data SyncType
     = FullSync
     -- ^ Synchronize all in-core parts of a file to disk: file content and
