@@ -1,6 +1,6 @@
 -----------------------------------------------------------------------------
 -- |
--- Module      :  HFuse
+-- Module      :  System.Fuse
 -- Copyright   :  (c) Jérémy Bobbio
 -- License     :  BSD-style
 -- 
@@ -22,7 +22,7 @@
 -- against a threaded runtime system (eg. using the @threaded@ GHC option).
 --
 -----------------------------------------------------------------------------
-module HFuse
+module System.Fuse
     ( -- * Using FUSE
 
       -- $intro
