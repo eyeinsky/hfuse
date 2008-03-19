@@ -8,18 +8,16 @@
 -- Stability   :  experimental
 -- Portability :  GHC 6.4
 --
--- HFuse is a binding for the FUSE (Filesystem in USErspace) library.
---
--- See <http://fuse.sourceforge.net/>
---
--- This library allow new filesystem implementation as simple user-land
--- programs.
+-- A binding for the FUSE (Filesystem in USErspace) library
+-- (<http://fuse.sourceforge.net/>), which allows filesystems to be implemented
+-- as userspace processes.
 --
 -- The binding tries to follow as much as possible current Haskell POSIX
 -- interface in "System.Posix.Files" and "System.Posix.Directory".
--- 
--- FUSE uses POSIX thread, thus Haskell implementation needs to be linked
--- against a threaded runtime system (eg. using the @threaded@ GHC option).
+--
+-- FUSE uses POSIX threads, so any Haskell application using this library must
+-- be linked against a threaded runtime system (eg. using the @threaded@ GHC
+-- option).
 --
 -----------------------------------------------------------------------------
 module System.Fuse
