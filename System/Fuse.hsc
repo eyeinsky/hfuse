@@ -376,7 +376,7 @@ data FuseOperations fh = FuseOperations
         fuseSynchronizeDirectory :: FilePath -> SyncType -> IO Errno,
 
         -- | Check file access permissions; this will be called for the
-        --   access() system call.  If the 'default_permissions' mount option
+        --   access() system call.  If the @default_permissions@ mount option
         --   is given, this method is not called.  This method is also not
         --   called under Linux kernel versions 2.4.x
         fuseAccess :: FilePath -> Int -> IO Errno, -- FIXME present a nicer type to Haskell
@@ -389,7 +389,7 @@ data FuseOperations fh = FuseOperations
         fuseDestroy :: IO ()
       }
 
--- |Empty / default versions of the FUSE operations.
+-- | Empty \/ default versions of the FUSE operations.
 defaultFuseOps :: FuseOperations fh
 defaultFuseOps =
     FuseOperations { fuseGetFileStat = \_ -> return (Left eNOSYS)
