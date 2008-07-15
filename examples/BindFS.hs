@@ -7,7 +7,7 @@ import System.Directory ( getDirectoryContents )
 import System.IO
 import System.IO.Error
 import System.Posix
-import HFuse
+import System.Fuse
 
 type HT = Fd
 

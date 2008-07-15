@@ -69,7 +69,12 @@ import System.Posix.IO ( OpenMode(..), OpenFileFlags(..) )
 
 #define FUSE_USE_VERSION 26
 
+#ifdef MACFUSE
+#include <sys/mount.h>
+#else
 #include <sys/statfs.h>
+#endif
+
 #include <dirent.h>
 #include <fuse.h>
 #include <fcntl.h>
@@ -640,8 +645,11 @@ fuseMain ops handler =
                            (fromIntegral (fsStatFileCount stat) :: (#type long))
                       (#poke struct statfs, f_ffree) pStatFS
                           (fromIntegral (fsStatFilesFree stat) :: (#type long))
+#ifndef MACFUSE
+-- OSX doesn't support 'max name length'
                       (#poke struct statfs, f_namelen) pStatFS
                           (fromIntegral (fsStatMaxNameLength stat) :: (#type long))
+#endif
                       return 0
           wrapFlush :: CFlush
           wrapFlush pFilePath pFuseFileInfo = handle fuseHandler $

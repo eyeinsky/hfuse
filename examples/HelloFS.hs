@@ -6,7 +6,7 @@ import System.Posix.Types
 import System.Posix.Files
 import System.Posix.IO
 
-import HFuse
+import System.Fuse
 
 type HT = ()
 
@@ -19,6 +19,7 @@ helloFSOps = defaultFuseOps { fuseGetFileStat = helloGetFileStat
                             , fuseRead        = helloRead 
                             , fuseOpenDirectory = helloOpenDirectory
                             , fuseReadDirectory = helloReadDirectory
+                            , fuseGetFileSystemStats = helloGetFileSystemStats
                             }
 helloString :: B.ByteString
 helloString = B.pack "Hello World, HFuse!\n"
@@ -98,3 +99,15 @@ helloRead path _ byteCount offset
     | path == helloPath =
         return $ Right $ B.take (fromIntegral byteCount) $ B.drop (fromIntegral offset) helloString
     | otherwise         = return $ Left eNOENT
+
+helloGetFileSystemStats :: String -> IO (Either Errno FileSystemStats)
+helloGetFileSystemStats str =
+  return $ Right $ FileSystemStats
+    { fsStatBlockSize = 512
+    , fsStatBlockCount = 1
+    , fsStatBlocksFree = 1
+    , fsStatBlocksAvailable = 1
+    , fsStatFileCount = 5
+    , fsStatFilesFree = 10
+    , fsStatMaxNameLength = 255
+    }
