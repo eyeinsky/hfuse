@@ -8,3 +8,8 @@ HelloFS seems to work with:
 BindFS (?) is known to have a lurking deadlock problem.
 
 LiveFS is broken (from the old distribution).
+
+Added support for MacFUSE. Tested HelloFS and BindFS with:
+* OSX 10.4.11 on a PPC G4 mac
+* GHC 6.8.3
+* MacFUSE 10.4-1.7.0
