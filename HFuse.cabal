@@ -18,6 +18,8 @@ Library
   Include-Dirs:           /usr/include, /usr/local/include, .
   Extra-Libraries:        fuse
   Extra-Lib-Dirs:         /usr/local/lib
+  Includes:               fuse_wrappers.h
+  Install-Includes:       fuse_wrappers.h
   C-Sources:              fuse_wrappers.c
   CC-Options:             -D_FILE_OFFSET_BITS=64
   if os(darwin) {
