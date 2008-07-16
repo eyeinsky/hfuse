@@ -9,6 +9,7 @@ Homepage:               http://code.haskell.org/hfuse
 Category:               System
 Stability:              Experimental
 Cabal-Version:          >= 1.2
+Build-Type:             Simple
 
 Library
   Build-Depends:          base, unix, bytestring
