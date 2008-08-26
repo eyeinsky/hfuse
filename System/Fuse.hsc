@@ -28,7 +28,7 @@ module System.Fuse
       module Foreign.C.Error
     , FuseOperations(..)
     , defaultFuseOps
-    , fuseMain -- :: FuseOperations -> (Exception -> IO Errno) -> IO ()
+    , fuseMain -- :: FuseOperations fh -> (Exception -> IO Errno) -> IO ()
     , defaultExceptionHandler -- :: Exception -> IO Errno
       -- * Operations datatypes
     , FileStat(..)
@@ -48,6 +48,7 @@ module System.Fuse
 
 import Prelude hiding ( Read )
 
+import Control.Monad
 import Control.Exception as E( Exception, handle, finally )
 import qualified Data.ByteString.Char8    as B
 import qualified Data.ByteString.Internal as B
@@ -57,10 +58,16 @@ import Foreign.C
 import Foreign.C.Error
 import Foreign.Marshal
 import System.Environment ( getProgName, getArgs )
-import System.IO ( hPutStrLn, stderr )
+import System.IO ( hPutStrLn, stderr, withFile, stdin, stdout, IOMode(..) )
 import System.Posix.Types
 import System.Posix.Files ( accessModes, intersectFileModes, unionFileModes )
+import System.Posix.Directory(changeWorkingDirectory)
+import System.Posix.Process(forkProcess,createSession,exitImmediately)
 import System.Posix.IO ( OpenMode(..), OpenFileFlags(..) )
+import qualified System.Posix.Signals as Signals
+import GHC.Handle(hDuplicateTo)
+import System.Exit
+import qualified System.IO.Error as IO(catch,ioeGetErrorString)
 
 -- TODO: FileMode -> Permissions
 -- TODO: Arguments !
@@ -78,8 +85,6 @@ import System.Posix.IO ( OpenMode(..), OpenFileFlags(..) )
 #include <dirent.h>
 #include <fuse.h>
 #include <fcntl.h>
-
-#include "fuse_wrappers.h"
 
 {- $intro
 'FuseOperations' contains a field for each filesystem operations that can be called
@@ -426,32 +431,24 @@ defaultFuseOps =
                    , fuseDestroy = return ()
                    }
 
+-- Allocates a fuse_args struct to hold the commandline arguments.
+withFuseArgs :: (Ptr CFuseArgs -> IO b) -> IO b
+withFuseArgs f =
+    do prog <- getProgName
+       args <- getArgs
+       let allArgs = (prog:args)
+           argc = length allArgs
+       withMany withCString allArgs (\ cArgs ->
+           withArray cArgs $ (\ pArgv ->
+               allocaBytes (#size struct fuse_args) (\ fuseArgs ->
+                    do (#poke struct fuse_args, argc) fuseArgs argc
+                       (#poke struct fuse_args, argv) fuseArgs pArgv
+                       (#poke struct fuse_args, allocated) fuseArgs (0::CInt)
+                       finally (f fuseArgs)
+                               (fuse_opt_free_args fuseArgs))))
 
--- | Main function of FUSE.
--- This is all that has to be called from the @main@ function. On top of
--- the 'FuseOperations' record with filesystem implementation, you must give
--- an exception handler converting Haskell exceptions to 'Errno'.
--- 
--- This function does the following:
---
---   * parses command line options (@-d@, @-s@ and @-h@) ;
---
---   * passes all options after @--@ to the fusermount program ;
---
---   * mounts the filesystem by calling @fusermount@ ;
---
---   * installs signal handlers for 'System.Posix.Signals.keyboardSignal',
---     'System.Posix.Signals.lostConnection',
---     'System.Posix.Signals.softwareTermination' and
---     'System.Posix.Signals.openEndedPipe' ;
---
---   * registers an exit handler to unmount the filesystem on program exit ;
---
---   * registers the operations ;
---
---   * calls FUSE event loop.
-fuseMain :: FuseOperations fh -> (Exception -> IO Errno) -> IO ()
-fuseMain ops handler =
+withStructFuse :: Ptr CFuseChan -> Ptr CFuseArgs -> FuseOperations fh -> (Exception -> IO Errno) -> (Ptr CStructFuse -> IO b) -> IO b
+withStructFuse pFuseChan pArgs ops handler f =
     allocaBytes (#size struct fuse_operations) $ \ pOps -> do
       mkGetAttr    wrapGetAttr    >>= (#poke struct fuse_operations, getattr)    pOps
       mkReadLink   wrapReadLink   >>= (#poke struct fuse_operations, readlink)   pOps 
@@ -485,16 +482,16 @@ fuseMain ops handler =
       mkReadDir    wrapReadDir    >>= (#poke struct fuse_operations, readdir)    pOps
       mkReleaseDir wrapReleaseDir >>= (#poke struct fuse_operations, releasedir) pOps
       mkFSyncDir   wrapFSyncDir   >>= (#poke struct fuse_operations, fsyncdir)   pOps
+#if FUSE_MINOR_VERSION > 4
       mkAccess     wrapAccess     >>= (#poke struct fuse_operations, access)     pOps
+#endif
       mkInit       wrapInit       >>= (#poke struct fuse_operations, init)       pOps
       mkDestroy    wrapDestroy    >>= (#poke struct fuse_operations, destroy)    pOps
-      prog <- getProgName
-      args <- getArgs
-      let allArgs = (prog:args)
-          argc    = length allArgs
-      withMany withCString allArgs $ \ pAddrs  ->
-          withArray pAddrs $ \ pArgv ->
-              do fuse_main_wrapper argc pArgv pOps
+      structFuse <- fuse_new pFuseChan pArgs pOps (#size struct fuse_operations) nullPtr 
+      if structFuse == nullPtr
+        then fail ""
+        else E.finally (f structFuse)
+                       (fuse_destroy structFuse)
     where fuseHandler :: Exception -> IO CInt
           fuseHandler e = handler e >>= return . unErrno
           wrapGetAttr :: CGetAttr
@@ -727,6 +724,125 @@ fuseMain ops handler =
 defaultExceptionHandler :: (Exception -> IO Errno)
 defaultExceptionHandler e = hPutStrLn stderr (show e) >> return eFAULT
 
+-- Calls fuse_parse_cmdline to parses the part of the commandline arguments that
+-- we care about. fuse_parse_cmdline will modify the CFuseArgs struct passed in
+-- to remove those arguments; the CFuseArgs struct containing remaining arguments
+-- must be passed to fuse_mount/fuse_new.
+--
+-- The multithreaded runtime will be used regardless of the threading flag!
+-- See the comment in fuse_session_exit for why.
+fuseParseCommandLine :: Ptr CFuseArgs -> IO (Maybe (Maybe String, Bool, Bool))
+fuseParseCommandLine pArgs = 
+    alloca (\pMountPt -> 
+        alloca (\pMultiThreaded ->
+            alloca (\pFG ->
+                do poke pMultiThreaded 0
+                   poke pFG 0
+                   retval <- fuse_parse_cmdline pArgs pMountPt pMultiThreaded pFG
+                   if retval == 0
+                     then do cMountPt <- peek pMountPt
+                             mountPt <- if cMountPt /= nullPtr
+                                          then do a <- peekCString cMountPt
+                                                  free cMountPt
+                                                  return $ Just a
+                                          else return $ Nothing
+                             multiThreaded <- peek pMultiThreaded
+                             foreground <- peek pFG
+                             return $ Just (mountPt, multiThreaded == 1, foreground == 1)
+                     else return Nothing)))
+
+-- haskell version of daemon(2)
+-- Mimic's daemon()s use of _exit() instead of exit(); we depend on this in fuseMainReal,
+-- because otherwise we'll unmount the filesystem when the foreground process exits.
+daemon f = forkProcess d >> exitImmediately ExitSuccess
+  where d = IO.catch (do createSession
+                         changeWorkingDirectory "/"
+                         -- need to open /dev/null twice because hDuplicateTo can't dup a ReadWriteMode to a ReadMode handle
+                         withFile "/dev/null" WriteMode (\devNullOut ->
+                           do hDuplicateTo devNullOut stdout
+                              hDuplicateTo devNullOut stderr)
+                         withFile "/dev/null" ReadMode (\devNullIn -> hDuplicateTo devNullIn stdin)
+                         f
+                         exitWith ExitSuccess)
+                     (const exitFailure)
+
+-- Installs signal handlers for the duration of the main loop.
+withSignalHandlers exitHandler f =
+    do let sigHandler = Signals.CatchOnce exitHandler
+       Signals.installHandler Signals.keyboardSignal sigHandler Nothing
+       Signals.installHandler Signals.lostConnection sigHandler Nothing
+       Signals.installHandler Signals.softwareTermination sigHandler Nothing
+       Signals.installHandler Signals.openEndedPipe Signals.Ignore Nothing
+       E.finally f
+                 (do Signals.installHandler Signals.keyboardSignal Signals.Default Nothing
+                     Signals.installHandler Signals.lostConnection Signals.Default Nothing
+                     Signals.installHandler Signals.softwareTermination Signals.Default Nothing
+                     Signals.installHandler Signals.openEndedPipe Signals.Default Nothing)
+
+-- Mounts the filesystem, forks, and then starts fuse
+fuseMainReal foreground ops handler pArgs mountPt =
+    withCString mountPt (\cMountPt ->
+      do pFuseChan <- fuse_mount cMountPt pArgs
+         if pFuseChan == nullPtr
+           then exitFailure -- fuse will print an error message why this happened
+           else (withStructFuse pFuseChan pArgs ops handler (\pFuse ->
+                  E.finally 
+                     (if foreground -- finally ready to fork
+                       then changeWorkingDirectory "/" >> (procMain pFuse)
+                       else daemon (procMain pFuse))
+                     (fuse_unmount cMountPt pFuseChan))))
+
+    -- here, we're finally inside the daemon process, we can run the main loop
+    where procMain pFuse = do session <- fuse_get_session pFuse
+                              -- calling fuse_session_exit to exit the main loop only
+                              -- appears to work with the multithreaded fuse loop.
+                              -- In the single-threaded case, FUSE depends on their
+                              -- recv() call to finish with EINTR when signals arrive.
+                              -- This doesn't happen with GHC's signal handling in place.
+                              withSignalHandlers (fuse_session_exit session) $
+                                 do retVal <- fuse_loop_mt pFuse
+                                    if retVal == 1 
+                                      then exitWith ExitSuccess
+                                      else exitFailure
+                                    return ()
+
+-- | Main function of FUSE.
+-- This is all that has to be called from the @main@ function. On top of
+-- the 'FuseOperations' record with filesystem implementation, you must give
+-- an exception handler converting Haskell exceptions to 'Errno'.
+-- 
+-- This function does the following:
+--
+--   * parses command line options (@-d@, @-s@ and @-h@) ;
+--
+--   * passes all options after @--@ to the fusermount program ;
+--
+--   * mounts the filesystem by calling @fusermount@ ;
+--
+--   * installs signal handlers for 'System.Posix.Signals.keyboardSignal',
+--     'System.Posix.Signals.lostConnection',
+--     'System.Posix.Signals.softwareTermination' and
+--     'System.Posix.Signals.openEndedPipe' ;
+--
+--   * registers an exit handler to unmount the filesystem on program exit ;
+--
+--   * registers the operations ;
+--
+--   * calls FUSE event loop.
+fuseMain :: FuseOperations fh -> (Exception -> IO Errno) -> IO ()
+fuseMain ops handler =
+    -- this used to be implemented using libfuse's fuse_main. Doing this will fork()
+    -- from C behind the GHC runtime's back, which deadlocks in GHC 6.8.
+    -- Instead, we reimplement fuse_main in Haskell using the forkProcess and the
+    -- lower-level fuse_new/fuse_loop_mt API.
+    IO.catch
+       (withFuseArgs (\pArgs ->
+         do cmd <- fuseParseCommandLine pArgs
+            case cmd of
+              Nothing -> fail ""
+              Just (Nothing, _, _) -> fail "Usage error: mount point required"
+              Just (Just mountPt, _, foreground) -> fuseMainReal foreground ops handler pArgs mountPt))
+       ((\errStr -> when (not $ null errStr) (putStrLn errStr) >> exitFailure) . IO.ioeGetErrorString)
 
 -----------------------------------------------------------------------------
 -- Miscellaneous utilities
@@ -752,13 +868,48 @@ pokeCStringLen0 (pBuf, bufSize) src =
 -- exported C called from Haskell
 ---  
 
-data CFuseOperations
-foreign import ccall threadsafe "fuse_wrappers.h fuse_main_wrapper"
-    fuse_main_wrapper :: Int -> Ptr CString -> Ptr CFuseOperations -> IO ()
+data CFuseArgs -- struct fuse_args
 
-data StructFuse
+data CFuseChan -- struct fuse_chan
+foreign import ccall threadsafe "fuse.h fuse_mount"
+    fuse_mount :: CString -> Ptr CFuseArgs -> IO (Ptr CFuseChan)
+
+foreign import ccall threadsafe "fuse.h fuse_unmount"
+    fuse_unmount :: CString -> Ptr CFuseChan -> IO ()
+
+data CFuseSession -- struct fuse_session
+foreign import ccall threadsafe "fuse.h fuse_get_session"
+    fuse_get_session :: Ptr CStructFuse -> IO (Ptr CFuseSession)
+
+foreign import ccall threadsafe "fuse.h fuse_session_exit"
+    fuse_session_exit :: Ptr CFuseSession -> IO ()
+
+foreign import ccall threadsafe "fuse.h fuse_set_signal_handlers"
+    fuse_set_signal_handlers :: Ptr CFuseSession -> IO Int
+
+foreign import ccall threadsafe "fuse.h fuse_remove_signal_handlers"
+    fuse_remove_signal_handlers :: Ptr CFuseSession -> IO ()
+
+foreign import ccall threadsafe "fuse.h fuse_parse_cmdline"
+    fuse_parse_cmdline :: Ptr CFuseArgs -> Ptr CString -> Ptr Int -> Ptr Int -> IO Int
+
+data CStructFuse -- struct fuse
+data CFuseOperations -- struct fuse_operations
+foreign import ccall threadsafe "fuse.h fuse_new"
+    fuse_new :: Ptr CFuseChan -> Ptr CFuseArgs -> Ptr CFuseOperations -> Int -> Ptr () -> IO (Ptr CStructFuse)
+
+foreign import ccall threadsafe "fuse.h fuse_destroy"
+    fuse_destroy :: Ptr CStructFuse -> IO ()
+
+foreign import ccall threadsafe "fuse.h fuse_opt_free_args"
+    fuse_opt_free_args :: Ptr CFuseArgs -> IO ()
+
+foreign import ccall threadsafe "fuse.h fuse_loop_mt"
+    fuse_loop_mt :: Ptr CStructFuse -> IO Int
+
+data CFuseContext
 foreign import ccall threadsafe "fuse.h fuse_get_context"
-    fuse_get_context :: IO (Ptr StructFuse)
+    fuse_get_context :: IO (Ptr CFuseContext)
 
 ---
 -- dynamic Haskell called from C
