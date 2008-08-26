@@ -2,7 +2,7 @@ Name:                   HFuse
 Version:                0.2.1
 License:                BSD3
 License-File:		LICENSE
-Author:                 Jérémy Bobbio
+Author:                 Jeremy Bobbio
 Maintainer: 		Taru Karttunen <taruti@taruti.net>
 Synopsis:               HFuse is a binding for the Linux FUSE library.
 Homepage:               http://code.haskell.org/hfuse
