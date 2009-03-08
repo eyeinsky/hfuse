@@ -12,7 +12,7 @@ Cabal-Version:          >= 1.2
 Build-Type:             Simple
 
 Library
-  Build-Depends:          base, unix, bytestring
+  Build-Depends:          base >= 3 && < 4, unix, bytestring
   exposed-Modules:        System.Fuse
   Extensions:             ForeignFunctionInterface PatternSignatures EmptyDataDecls
   Includes:               sys/statfs.h, dirent.h, fuse.h, fcntl.h
