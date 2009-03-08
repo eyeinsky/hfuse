@@ -450,6 +450,7 @@ withFuseArgs f =
 withStructFuse :: Ptr CFuseChan -> Ptr CFuseArgs -> FuseOperations fh -> (Exception -> IO Errno) -> (Ptr CStructFuse -> IO b) -> IO b
 withStructFuse pFuseChan pArgs ops handler f =
     allocaBytes (#size struct fuse_operations) $ \ pOps -> do
+      bzero pOps (#size struct fuse_operations)
       mkGetAttr    wrapGetAttr    >>= (#poke struct fuse_operations, getattr)    pOps
       mkReadLink   wrapReadLink   >>= (#poke struct fuse_operations, readlink)   pOps 
       -- getdir is deprecated and thus unsupported
@@ -1063,5 +1064,10 @@ foreign import ccall threadsafe "dynamic"
 
 data CFillDirBuf -- void
 type CFillDir = Ptr CFillDirBuf -> CString -> Ptr CStat -> COff -> IO CInt
+
 foreign import ccall threadsafe "dynamic"
     mkFillDir :: FunPtr CFillDir -> CFillDir
+
+foreign import ccall threadsafe "bzero"
+    bzero :: Ptr a -> Int -> IO ()
+
