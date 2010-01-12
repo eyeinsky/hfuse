@@ -872,44 +872,44 @@ pokeCStringLen0 (pBuf, bufSize) src =
 data CFuseArgs -- struct fuse_args
 
 data CFuseChan -- struct fuse_chan
-foreign import ccall threadsafe "fuse.h fuse_mount"
+foreign import ccall safe "fuse.h fuse_mount"
     fuse_mount :: CString -> Ptr CFuseArgs -> IO (Ptr CFuseChan)
 
-foreign import ccall threadsafe "fuse.h fuse_unmount"
+foreign import ccall safe "fuse.h fuse_unmount"
     fuse_unmount :: CString -> Ptr CFuseChan -> IO ()
 
 data CFuseSession -- struct fuse_session
-foreign import ccall threadsafe "fuse.h fuse_get_session"
+foreign import ccall safe "fuse.h fuse_get_session"
     fuse_get_session :: Ptr CStructFuse -> IO (Ptr CFuseSession)
 
-foreign import ccall threadsafe "fuse.h fuse_session_exit"
+foreign import ccall safe "fuse.h fuse_session_exit"
     fuse_session_exit :: Ptr CFuseSession -> IO ()
 
-foreign import ccall threadsafe "fuse.h fuse_set_signal_handlers"
+foreign import ccall safe "fuse.h fuse_set_signal_handlers"
     fuse_set_signal_handlers :: Ptr CFuseSession -> IO Int
 
-foreign import ccall threadsafe "fuse.h fuse_remove_signal_handlers"
+foreign import ccall safe "fuse.h fuse_remove_signal_handlers"
     fuse_remove_signal_handlers :: Ptr CFuseSession -> IO ()
 
-foreign import ccall threadsafe "fuse.h fuse_parse_cmdline"
+foreign import ccall safe "fuse.h fuse_parse_cmdline"
     fuse_parse_cmdline :: Ptr CFuseArgs -> Ptr CString -> Ptr Int -> Ptr Int -> IO Int
 
 data CStructFuse -- struct fuse
 data CFuseOperations -- struct fuse_operations
-foreign import ccall threadsafe "fuse.h fuse_new"
+foreign import ccall safe "fuse.h fuse_new"
     fuse_new :: Ptr CFuseChan -> Ptr CFuseArgs -> Ptr CFuseOperations -> Int -> Ptr () -> IO (Ptr CStructFuse)
 
-foreign import ccall threadsafe "fuse.h fuse_destroy"
+foreign import ccall safe "fuse.h fuse_destroy"
     fuse_destroy :: Ptr CStructFuse -> IO ()
 
-foreign import ccall threadsafe "fuse.h fuse_opt_free_args"
+foreign import ccall safe "fuse.h fuse_opt_free_args"
     fuse_opt_free_args :: Ptr CFuseArgs -> IO ()
 
-foreign import ccall threadsafe "fuse.h fuse_loop_mt"
+foreign import ccall safe "fuse.h fuse_loop_mt"
     fuse_loop_mt :: Ptr CStructFuse -> IO Int
 
 data CFuseContext
-foreign import ccall threadsafe "fuse.h fuse_get_context"
+foreign import ccall safe "fuse.h fuse_get_context"
     fuse_get_context :: IO (Ptr CFuseContext)
 
 ---
@@ -921,117 +921,117 @@ data CFuseConnInfo -- struct fuse_conn_info
 
 data CStat -- struct stat
 type CGetAttr = CString -> Ptr CStat -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkGetAttr :: CGetAttr -> IO (FunPtr CGetAttr)
 
 type CReadLink = CString -> CString -> CSize -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkReadLink :: CReadLink -> IO (FunPtr CReadLink)
 
 type CMkNod = CString -> CMode -> CDev -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkMkNod :: CMkNod -> IO (FunPtr CMkNod)
 
 type CMkDir = CString -> CMode -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkMkDir :: CMkDir -> IO (FunPtr CMkDir)
 
 type CUnlink = CString -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkUnlink :: CUnlink -> IO (FunPtr CUnlink)
 
 type CRmDir = CString -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkRmDir :: CRmDir -> IO (FunPtr CRmDir)
 
 type CSymLink = CString -> CString -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkSymLink :: CSymLink -> IO (FunPtr CSymLink)
 
 type CRename = CString -> CString -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkRename :: CRename -> IO (FunPtr CRename)
 
 type CLink = CString -> CString -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkLink :: CLink -> IO (FunPtr CLink)
 
 type CChMod = CString -> CMode -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkChMod :: CChMod -> IO (FunPtr CChMod)
 
 type CChOwn = CString -> CUid -> CGid -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkChOwn :: CChOwn -> IO (FunPtr CChOwn)
 
 type CTruncate = CString -> COff -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkTruncate :: CTruncate -> IO (FunPtr CTruncate)
 
 data CUTimBuf -- struct utimbuf
 type CUTime = CString -> Ptr CUTimBuf -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkUTime :: CUTime -> IO (FunPtr CUTime)
 
 type COpen = CString -> Ptr CFuseFileInfo -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkOpen :: COpen -> IO (FunPtr COpen)
 
 type CRead = CString -> CString -> CSize -> COff -> Ptr CFuseFileInfo -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkRead :: CRead -> IO (FunPtr CRead)
 
 type CWrite = CString -> CString -> CSize -> COff -> Ptr CFuseFileInfo -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkWrite :: CWrite -> IO (FunPtr CWrite)
 
 data CStructStatFS -- struct fuse_stat_fs
 type CStatFS = CString -> Ptr CStructStatFS -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkStatFS :: CStatFS -> IO (FunPtr CStatFS)
 
 type CFlush = CString -> Ptr CFuseFileInfo -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkFlush :: CFlush -> IO (FunPtr CFlush)
 
 type CRelease = CString -> Ptr CFuseFileInfo -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkRelease :: CRelease -> IO (FunPtr CRelease)
 
 type CFSync = CString -> Int -> Ptr CFuseFileInfo -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkFSync :: CFSync -> IO (FunPtr CFSync) 
 
 -- XXX add *xattr bindings
 
 type COpenDir = CString -> Ptr CFuseFileInfo -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkOpenDir :: COpenDir -> IO (FunPtr COpenDir)
 
 type CReadDir = CString -> Ptr CFillDirBuf -> FunPtr CFillDir -> COff
              -> Ptr CFuseFileInfo -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkReadDir :: CReadDir -> IO (FunPtr CReadDir)
 
 type CReleaseDir = CString -> Ptr CFuseFileInfo -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkReleaseDir :: CReleaseDir -> IO (FunPtr CReleaseDir)
 
 type CFSyncDir = CString -> Int -> Ptr CFuseFileInfo -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkFSyncDir :: CFSyncDir -> IO (FunPtr CFSyncDir)
 
 type CAccess = CString -> CInt -> IO CInt
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkAccess :: CAccess -> IO (FunPtr CAccess)
 
 -- CInt because anything would be fine as we don't use them
 type CInit = Ptr CFuseConnInfo -> IO (Ptr CInt)
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkInit :: CInit -> IO (FunPtr CInit)
 
 type CDestroy = Ptr CInt -> IO ()
-foreign import ccall threadsafe "wrapper"
+foreign import ccall safe "wrapper"
     mkDestroy :: CDestroy -> IO (FunPtr CDestroy)
 
 ----
@@ -1059,15 +1059,15 @@ delFH pFuseFileInfo = do
 
 data CDirHandle -- fuse_dirh_t
 type CDirFil = Ptr CDirHandle -> CString -> Int -> IO CInt -- fuse_dirfil_t
-foreign import ccall threadsafe "dynamic"
+foreign import ccall safe "dynamic"
     mkDirFil :: FunPtr CDirFil -> CDirFil
 
 data CFillDirBuf -- void
 type CFillDir = Ptr CFillDirBuf -> CString -> Ptr CStat -> COff -> IO CInt
 
-foreign import ccall threadsafe "dynamic"
+foreign import ccall safe "dynamic"
     mkFillDir :: FunPtr CFillDir -> CFillDir
 
-foreign import ccall threadsafe "bzero"
+foreign import ccall safe "bzero"
     bzero :: Ptr a -> Int -> IO ()
 
