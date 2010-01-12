@@ -1,12 +1,12 @@
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  System.Fuse
--- Copyright   :  (c) Jérémy Bobbio
+-- Copyright   :  (c) Jérémy Bobbio, Taru Karttunen
 -- License     :  BSD-style
 -- 
--- Maintainer  :  jeremy.bobbio@etu.upmc.fr
+-- Maintainer  :  taruti@taruti.net, jeremy.bobbio@etu.upmc.fr
 -- Stability   :  experimental
--- Portability :  GHC 6.4
+-- Portability :  GHC 6.4-6.12
 --
 -- A binding for the FUSE (Filesystem in USErspace) library
 -- (<http://fuse.sourceforge.net/>), which allows filesystems to be implemented
