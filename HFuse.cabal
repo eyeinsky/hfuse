@@ -10,6 +10,7 @@ Category:               System
 Stability:              Experimental
 Cabal-Version:          >= 1.2
 Build-Type:             Simple
+Extra-source-files:     README
 
 Library
   Build-Depends:          base >= 3 && < 4, unix, bytestring
