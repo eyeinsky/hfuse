@@ -1,6 +1,6 @@
 module Main where
 
-import Control.Exception
+import Control.OldException
 import qualified Data.ByteString.Char8 as B
 import Foreign.C.Error
 import System.Directory ( getDirectoryContents )
