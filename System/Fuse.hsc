@@ -49,7 +49,7 @@ module System.Fuse
 import Prelude hiding ( Read )
 
 import Control.Monad
-import Control.Exception as E( Exception, handle, finally )
+import Control.Exception as E(Exception, handle, finally, SomeException)
 import qualified Data.ByteString.Char8    as B
 import qualified Data.ByteString.Internal as B
 import qualified Data.ByteString.Unsafe   as B
@@ -65,7 +65,7 @@ import System.Posix.Directory(changeWorkingDirectory)
 import System.Posix.Process(forkProcess,createSession,exitImmediately)
 import System.Posix.IO ( OpenMode(..), OpenFileFlags(..) )
 import qualified System.Posix.Signals as Signals
-import GHC.Handle(hDuplicateTo)
+import GHC.IO.Handle(hDuplicateTo)
 import System.Exit
 import qualified System.IO.Error as IO(catch,ioeGetErrorString)
 
@@ -447,7 +447,7 @@ withFuseArgs f =
                        finally (f fuseArgs)
                                (fuse_opt_free_args fuseArgs))))
 
-withStructFuse :: Ptr CFuseChan -> Ptr CFuseArgs -> FuseOperations fh -> (Exception -> IO Errno) -> (Ptr CStructFuse -> IO b) -> IO b
+withStructFuse :: forall e fh b. Exception e => Ptr CFuseChan -> Ptr CFuseArgs -> FuseOperations fh -> (e -> IO Errno) -> (Ptr CStructFuse -> IO b) -> IO b
 withStructFuse pFuseChan pArgs ops handler f =
     allocaBytes (#size struct fuse_operations) $ \ pOps -> do
       bzero pOps (#size struct fuse_operations)
@@ -493,7 +493,7 @@ withStructFuse pFuseChan pArgs ops handler f =
         then fail ""
         else E.finally (f structFuse)
                        (fuse_destroy structFuse)
-    where fuseHandler :: Exception -> IO CInt
+    where fuseHandler :: e -> IO CInt
           fuseHandler e = handler e >>= return . unErrno
           wrapGetAttr :: CGetAttr
           wrapGetAttr pFilePath pStat = handle fuseHandler $
@@ -713,16 +713,16 @@ withStructFuse pFuseChan pArgs ops handler f =
                  return (- errno)
           wrapInit :: CInit
           wrapInit pFuseConnInfo =
-            handle (\e -> hPutStrLn stderr (show e) >> return nullPtr) $
+            handle (\e -> defaultExceptionHandler e >> return nullPtr) $
               do fuseInit ops
                  return nullPtr
           wrapDestroy :: CDestroy
-          wrapDestroy _ = handle (\e -> hPutStrLn stderr (show e)) $
+          wrapDestroy _ = handle (\e -> defaultExceptionHandler e >> return ()) $
               do fuseDestroy ops
 
 -- | Default exception handler.
 -- Print the exception on error output and returns 'eFAULT'.
-defaultExceptionHandler :: (Exception -> IO Errno)
+defaultExceptionHandler :: (SomeException -> IO Errno)
 defaultExceptionHandler e = hPutStrLn stderr (show e) >> return eFAULT
 
 -- Calls fuse_parse_cmdline to parses the part of the commandline arguments that
@@ -830,7 +830,7 @@ fuseMainReal foreground ops handler pArgs mountPt =
 --   * registers the operations ;
 --
 --   * calls FUSE event loop.
-fuseMain :: FuseOperations fh -> (Exception -> IO Errno) -> IO ()
+fuseMain :: Exception e => FuseOperations fh -> (e -> IO Errno) -> IO ()
 fuseMain ops handler =
     -- this used to be implemented using libfuse's fuse_main. Doing this will fork()
     -- from C behind the GHC runtime's back, which deadlocks in GHC 6.8.

@@ -13,9 +13,9 @@ Build-Type:             Simple
 Extra-source-files:     README
 
 Library
-  Build-Depends:          base >= 3 && < 4, unix, bytestring
+  Build-Depends:          base >= 4 && < 5, unix, bytestring
   exposed-Modules:        System.Fuse
-  Extensions:             ForeignFunctionInterface PatternSignatures EmptyDataDecls
+  Extensions:             ForeignFunctionInterface ScopedTypeVariables EmptyDataDecls
   Includes:               sys/statfs.h, dirent.h, fuse.h, fcntl.h
   Include-Dirs:           /usr/include, /usr/local/include, .
   Extra-Libraries:        fuse
