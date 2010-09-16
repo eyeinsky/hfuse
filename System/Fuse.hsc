@@ -40,6 +40,7 @@ module System.Fuse
     , FuseContext(fuseCtxUserID, fuseCtxGroupID, fuseCtxProcessID)
       -- * File modes
     , entryTypeToFileMode -- :: EntryType -> FileMode
+    , fileModeToEntryType -- :: FileMode -> EntryType
     , OpenMode(..)
     , OpenFileFlags(..)
     , intersectFileModes -- :: FileMode
