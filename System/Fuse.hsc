@@ -280,7 +280,7 @@ getFuseContext =
 data FuseOperations fh = FuseOperations
       { -- | Implements 'System.Posix.Files.getSymbolicLinkStatus' operation
         --   (POSIX @lstat(2)@).
-        fuseGetFileStat :: FilePath -> IO (Either Errno FileStat),
+        fuseGetFileStat :: FilePath -> Maybe fh -> IO (Either Errno FileStat),
 
         -- | Implements 'System.Posix.Files.readSymbolicLink' operation (POSIX
         --   @readlink(2)@).  The returned 'FilePath' might be truncated
@@ -368,7 +368,7 @@ data FuseOperations fh = FuseOperations
         fuseRelease :: FilePath -> fh -> IO (),
 
         -- | Implements @fsync(2)@.
-        fuseSynchronizeFile :: FilePath -> SyncType -> IO Errno,
+        fuseSynchronizeFile :: FilePath -> SyncType -> fh -> IO Errno,
 
         -- | Implements @opendir(3)@.  This method should check if the open
         --   operation is permitted for this directory.
@@ -403,7 +403,7 @@ data FuseOperations fh = FuseOperations
 -- | Empty \/ default versions of the FUSE operations.
 defaultFuseOps :: FuseOperations fh
 defaultFuseOps =
-    FuseOperations { fuseGetFileStat = \_ -> return (Left eNOSYS)
+    FuseOperations { fuseGetFileStat = \_ _ -> return (Left eNOSYS)
                    , fuseReadSymbolicLink = \_ -> return (Left eNOSYS)
                    , fuseCreateDevice = \_ _ _ _ ->  return eNOSYS
                    , fuseCreateDirectory = \_ _ -> return eNOSYS
@@ -422,7 +422,7 @@ defaultFuseOps =
                    , fuseGetFileSystemStats = \_ -> return (Left eNOSYS)
                    , fuseFlush = \_ _ -> return eOK
                    , fuseRelease = \_ _ -> return ()
-                   , fuseSynchronizeFile = \_ _ -> return eNOSYS
+                   , fuseSynchronizeFile = \_ _ _ -> return eNOSYS
                    , fuseOpenDirectory = \_ -> return eNOSYS
                    , fuseReadDirectory = \_ -> return (Left eNOSYS)
                    , fuseReleaseDirectory = \_ -> return eNOSYS
@@ -453,6 +453,7 @@ withStructFuse pFuseChan pArgs ops handler f =
     allocaBytes (#size struct fuse_operations) $ \ pOps -> do
       bzero pOps (#size struct fuse_operations)
       mkGetAttr    wrapGetAttr    >>= (#poke struct fuse_operations, getattr)    pOps
+      mkFGetAttr   wrapFGetAttr   >>= (#poke struct fuse_operations, fgetattr)   pOps
       mkReadLink   wrapReadLink   >>= (#poke struct fuse_operations, readlink)   pOps 
       -- getdir is deprecated and thus unsupported
       (#poke struct fuse_operations, getdir)    pOps nullPtr
@@ -496,10 +497,21 @@ withStructFuse pFuseChan pArgs ops handler f =
                        (fuse_destroy structFuse)
     where fuseHandler :: e -> IO CInt
           fuseHandler e = handler e >>= return . unErrno
+          
+          wrapFGetAttr :: CFGetAttr
+          wrapFGetAttr pFilePath pStat pFuseFileInfo = handle fuseHandler $
+              do filePath <- peekCString pFilePath
+                 cVal <- getFH pFuseFileInfo
+                 eitherFileStat <- (fuseGetFileStat ops) filePath (Just cVal)
+                 case eitherFileStat of
+                   Left (Errno errno) -> return (- errno)
+                   Right stat         -> do fileStatToCStat stat pStat
+                                            return okErrno
+
           wrapGetAttr :: CGetAttr
           wrapGetAttr pFilePath pStat = handle fuseHandler $
               do filePath <- peekCString pFilePath
-                 eitherFileStat <- (fuseGetFileStat ops) filePath
+                 eitherFileStat <- (fuseGetFileStat ops) filePath Nothing
                  case eitherFileStat of
                    Left (Errno errno) -> return (- errno)
                    Right stat         -> do fileStatToCStat stat pStat
@@ -667,8 +679,9 @@ withStructFuse pFuseChan pArgs ops handler f =
           wrapFSync :: CFSync
           wrapFSync pFilePath isFullSync pFuseFileInfo = handle fuseHandler $
               do filePath <- peekCString pFilePath
+                 cVal     <- getFH pFuseFileInfo
                  (Errno errno) <- (fuseSynchronizeFile ops)
-                                      filePath (toEnum isFullSync)
+                                      filePath (toEnum isFullSync) cVal
                  return (- errno)
           wrapOpenDir :: COpenDir
           wrapOpenDir pFilePath pFuseFileInfo = handle fuseHandler $
@@ -924,6 +937,10 @@ data CStat -- struct stat
 type CGetAttr = CString -> Ptr CStat -> IO CInt
 foreign import ccall safe "wrapper"
     mkGetAttr :: CGetAttr -> IO (FunPtr CGetAttr)
+
+type CFGetAttr = CString -> Ptr CStat -> Ptr CFuseFileInfo -> IO CInt
+foreign import ccall safe "wrapper"
+    mkFGetAttr :: CFGetAttr -> IO (FunPtr CFGetAttr)
 
 type CReadLink = CString -> CString -> CSize -> IO CInt
 foreign import ccall safe "wrapper"
