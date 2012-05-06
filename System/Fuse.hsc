@@ -321,7 +321,7 @@ data FuseOperations fh = FuseOperations
         fuseSetOwnerAndGroup :: FilePath -> UserID -> GroupID -> IO Errno,
 
         -- | Implements 'System.Posix.Files.setFileSize' (POSIX @truncate(2)@).
-        fuseSetFileSize :: FilePath -> FileOffset -> IO Errno,
+        fuseSetFileSize :: FilePath -> FileOffset -> Maybe fh -> IO Errno,
 
         -- | Implements 'System.Posix.Files.setFileTimes'
         --   (POSIX @utime(2)@).
@@ -414,7 +414,7 @@ defaultFuseOps =
                    , fuseCreateLink = \_ _ -> return eNOSYS
                    , fuseSetFileMode = \_ _ -> return eNOSYS
                    , fuseSetOwnerAndGroup = \_ _ _ -> return eNOSYS
-                   , fuseSetFileSize = \_ _ -> return eNOSYS
+                   , fuseSetFileSize = \_ _ _ -> return eNOSYS
                    , fuseSetFileTimes = \_ _ _ -> return eNOSYS
                    , fuseOpen =   \_ _ _   -> return (Left eNOSYS)
                    , fuseRead =   \_ _ _ _ -> return (Left eNOSYS)
@@ -454,27 +454,28 @@ withStructFuse pFuseChan pArgs ops handler f =
       bzero pOps (#size struct fuse_operations)
       mkGetAttr    wrapGetAttr    >>= (#poke struct fuse_operations, getattr)    pOps
       mkFGetAttr   wrapFGetAttr   >>= (#poke struct fuse_operations, fgetattr)   pOps
-      mkReadLink   wrapReadLink   >>= (#poke struct fuse_operations, readlink)   pOps 
+      mkReadLink   wrapReadLink   >>= (#poke struct fuse_operations, readlink)   pOps
       -- getdir is deprecated and thus unsupported
       (#poke struct fuse_operations, getdir)    pOps nullPtr
-      mkMkNod      wrapMkNod      >>= (#poke struct fuse_operations, mknod)      pOps 
-      mkMkDir      wrapMkDir      >>= (#poke struct fuse_operations, mkdir)      pOps 
-      mkUnlink     wrapUnlink     >>= (#poke struct fuse_operations, unlink)     pOps 
-      mkRmDir      wrapRmDir      >>= (#poke struct fuse_operations, rmdir)      pOps 
-      mkSymLink    wrapSymLink    >>= (#poke struct fuse_operations, symlink)    pOps 
-      mkRename     wrapRename     >>= (#poke struct fuse_operations, rename)     pOps 
-      mkLink       wrapLink       >>= (#poke struct fuse_operations, link)       pOps 
-      mkChMod      wrapChMod      >>= (#poke struct fuse_operations, chmod)      pOps 
-      mkChOwn      wrapChOwn      >>= (#poke struct fuse_operations, chown)      pOps 
-      mkTruncate   wrapTruncate   >>= (#poke struct fuse_operations, truncate)   pOps 
+      mkMkNod      wrapMkNod      >>= (#poke struct fuse_operations, mknod)      pOps
+      mkMkDir      wrapMkDir      >>= (#poke struct fuse_operations, mkdir)      pOps
+      mkUnlink     wrapUnlink     >>= (#poke struct fuse_operations, unlink)     pOps
+      mkRmDir      wrapRmDir      >>= (#poke struct fuse_operations, rmdir)      pOps
+      mkSymLink    wrapSymLink    >>= (#poke struct fuse_operations, symlink)    pOps
+      mkRename     wrapRename     >>= (#poke struct fuse_operations, rename)     pOps
+      mkLink       wrapLink       >>= (#poke struct fuse_operations, link)       pOps
+      mkChMod      wrapChMod      >>= (#poke struct fuse_operations, chmod)      pOps
+      mkChOwn      wrapChOwn      >>= (#poke struct fuse_operations, chown)      pOps
+      mkTruncate   wrapTruncate   >>= (#poke struct fuse_operations, truncate)   pOps
+      mkFTruncate  wrapFTruncate  >>= (#poke struct fuse_operations, ftruncate)  pOps
       -- TODO: Deprecated, use utimens() instead.
-      mkUTime      wrapUTime      >>= (#poke struct fuse_operations, utime)      pOps 
-      mkOpen       wrapOpen       >>= (#poke struct fuse_operations, open)       pOps 
-      mkRead       wrapRead       >>= (#poke struct fuse_operations, read)       pOps 
-      mkWrite      wrapWrite      >>= (#poke struct fuse_operations, write)      pOps 
+      mkUTime      wrapUTime      >>= (#poke struct fuse_operations, utime)      pOps
+      mkOpen       wrapOpen       >>= (#poke struct fuse_operations, open)       pOps
+      mkRead       wrapRead       >>= (#poke struct fuse_operations, read)       pOps
+      mkWrite      wrapWrite      >>= (#poke struct fuse_operations, write)      pOps
       mkStatFS     wrapStatFS     >>= (#poke struct fuse_operations, statfs)     pOps
       mkFlush      wrapFlush      >>= (#poke struct fuse_operations, flush)      pOps
-      mkRelease    wrapRelease    >>= (#poke struct fuse_operations, release)    pOps 
+      mkRelease    wrapRelease    >>= (#poke struct fuse_operations, release)    pOps
       mkFSync      wrapFSync      >>= (#poke struct fuse_operations, fsync)      pOps
       -- TODO: Implement these
       (#poke struct fuse_operations, setxattr)    pOps nullPtr
@@ -582,7 +583,13 @@ withStructFuse pFuseChan pArgs ops handler f =
           wrapTruncate :: CTruncate
           wrapTruncate pFilePath off = handle fuseHandler $
               do filePath <- peekCString pFilePath
-                 (Errno errno) <- (fuseSetFileSize ops) filePath off
+                 (Errno errno) <- (fuseSetFileSize ops) filePath off Nothing
+                 return (- errno)
+          wrapFTruncate :: CFTruncate
+          wrapFTruncate pFilePath off pFuseFileInfo = handle fuseHandler $
+              do filePath <- peekCString pFilePath
+                 cVal <- getFH pFuseFileInfo
+                 (Errno errno) <- (fuseSetFileSize ops) filePath off (Just cVal)
                  return (- errno)
           wrapUTime :: CUTime
           wrapUTime pFilePath pUTimBuf = handle fuseHandler $
@@ -985,6 +992,10 @@ foreign import ccall safe "wrapper"
 type CTruncate = CString -> COff -> IO CInt
 foreign import ccall safe "wrapper"
     mkTruncate :: CTruncate -> IO (FunPtr CTruncate)
+
+type CFTruncate = CString -> COff -> Ptr CFuseFileInfo -> IO CInt
+foreign import ccall safe "wrapper"
+    mkFTruncate :: CFTruncate -> IO (FunPtr CFTruncate)
 
 data CUTimBuf -- struct utimbuf
 type CUTime = CString -> Ptr CUTimBuf -> IO CInt
