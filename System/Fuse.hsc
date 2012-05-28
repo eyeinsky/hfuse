@@ -27,6 +27,8 @@ module System.Fuse
 
       module Foreign.C.Error
     , FuseOperations(..)
+    , FuseCapability(..)
+    , FuseConnInfo(FuseConnSet, protoMajor, protoMinor, asyncRead, maxWrite, maxReadAhead, capable, want)
     , defaultFuseOps
     , fuseMain -- :: FuseOperations fh -> (Exception -> IO Errno) -> IO ()
     , defaultExceptionHandler -- :: Exception -> IO Errno
@@ -56,6 +58,7 @@ import qualified Data.ByteString.Internal as B
 import qualified Data.ByteString.Unsafe   as B
 import Foreign
 import Foreign.C
+import Foreign.C.Types
 import Foreign.C.Error
 import Foreign.Marshal
 import System.Environment ( getProgName, getArgs )
@@ -123,6 +126,75 @@ data FileStat = FileStat { statEntryType :: EntryType
                          , statStatusChangeTime :: EpochTime
                          }
     deriving Show
+
+data FuseCapability = FuseCapAsyncRead
+                    | FuseCapPosixLocks
+                    | FuseCapAtomicOTrunc
+                    | FuseCapExportSupport
+                    | FuseCapBigWrites
+                    | FuseCapDontMask
+                    deriving (Show,Eq)
+
+-- | The fuse_conn_info structure.
+data FuseConnInfo = FuseConnInfo { protoMajor   :: Int
+                                 , protoMinor   :: Int
+                                 , asyncRead    :: Bool
+                                 , maxWrite     :: Int
+                                 , maxReadAhead :: Int
+                                 , capable      :: [FuseCapability]
+                                 , want         :: [FuseCapability]
+                                 }
+                  | FuseConnSet { asyncRead    :: Bool
+                                , maxWrite     :: Int
+                                , maxReadAhead :: Int
+                                , want         :: [FuseCapability]
+                                }
+                  deriving (Show)
+
+isFuseConnInfo :: FuseConnInfo -> Bool
+isFuseConnInfo (FuseConnSet _ _ _ _) = False
+isFuseConnInfo _                     = True
+
+cFuseCapToFuseCap :: CUInt -> [FuseCapability]
+cFuseCapToFuseCap ccap = foldl testAndSet [] [ (capAsyncRead, FuseCapAsyncRead)
+                                             , (capPosixLocks, FuseCapPosixLocks)
+                                             , (capAtomicOTrunc, FuseCapAtomicOTrunc)
+                                             , (capExportSupport, FuseCapExportSupport)
+                                             , (capBigWrites, FuseCapBigWrites)
+                                             , (capDontMask, FuseCapDontMask)
+                                             ]
+  where testAndSet caps (t, c)
+          | ccap .&. t == t = c : caps
+          | otherwise       = caps
+
+fuseCapToCFuseCap :: FuseCapability -> CUInt
+fuseCapToCFuseCap FuseCapAsyncRead     = capAsyncRead
+fuseCapToCFuseCap FuseCapPosixLocks    = capPosixLocks
+fuseCapToCFuseCap FuseCapAtomicOTrunc  = capAtomicOTrunc
+fuseCapToCFuseCap FuseCapExportSupport = capExportSupport
+fuseCapToCFuseCap FuseCapBigWrites     = capBigWrites
+fuseCapToCFuseCap FuseCapDontMask      = capDontMask
+
+fuseCapsToCFuseCap :: [FuseCapability] -> CUInt
+fuseCapsToCFuseCap = foldl (.|.) 0 . map fuseCapToCFuseCap
+
+capAsyncRead :: CUInt
+capAsyncRead = (#const FUSE_CAP_ASYNC_READ)
+
+capPosixLocks :: CUInt
+capPosixLocks = (#const FUSE_CAP_POSIX_LOCKS)
+
+capAtomicOTrunc :: CUInt
+capAtomicOTrunc = (#const FUSE_CAP_ATOMIC_O_TRUNC)
+
+capExportSupport :: CUInt
+capExportSupport = (#const FUSE_CAP_EXPORT_SUPPORT)
+
+capBigWrites :: CUInt
+capBigWrites = (#const FUSE_CAP_BIG_WRITES)
+
+capDontMask :: CUInt
+capDontMask = (#const FUSE_CAP_DONT_MASK)
 
 {- FIXME: I don't know how to determine the alignment of struct stat without
  - making unportable assumptions about the order of elements within it.  Hence,
@@ -280,7 +352,7 @@ getFuseContext =
 data FuseOperations fh = FuseOperations
       { -- | Implements 'System.Posix.Files.getSymbolicLinkStatus' operation
         --   (POSIX @lstat(2)@).
-        fuseGetFileStat :: FilePath -> IO (Either Errno FileStat),
+        fuseGetFileStat :: FilePath -> Maybe fh -> IO (Either Errno FileStat),
 
         -- | Implements 'System.Posix.Files.readSymbolicLink' operation (POSIX
         --   @readlink(2)@).  The returned 'FilePath' might be truncated
@@ -321,7 +393,7 @@ data FuseOperations fh = FuseOperations
         fuseSetOwnerAndGroup :: FilePath -> UserID -> GroupID -> IO Errno,
 
         -- | Implements 'System.Posix.Files.setFileSize' (POSIX @truncate(2)@).
-        fuseSetFileSize :: FilePath -> FileOffset -> IO Errno,
+        fuseSetFileSize :: FilePath -> FileOffset -> Maybe fh -> IO Errno,
 
         -- | Implements 'System.Posix.Files.setFileTimes'
         --   (POSIX @utime(2)@).
@@ -368,7 +440,7 @@ data FuseOperations fh = FuseOperations
         fuseRelease :: FilePath -> fh -> IO (),
 
         -- | Implements @fsync(2)@.
-        fuseSynchronizeFile :: FilePath -> SyncType -> IO Errno,
+        fuseSynchronizeFile :: FilePath -> SyncType -> fh -> IO Errno,
 
         -- | Implements @opendir(3)@.  This method should check if the open
         --   operation is permitted for this directory.
@@ -392,9 +464,10 @@ data FuseOperations fh = FuseOperations
         --   called under Linux kernel versions 2.4.x
         fuseAccess :: FilePath -> Int -> IO Errno, -- FIXME present a nicer type to Haskell
 
-        -- | Initializes the filesystem.  This is called before all other
-        --   operations.
-        fuseInit :: IO (),
+        -- | Initializes the filesystem.  This is called before all
+        --   other operations. If this function may change the
+        --   initialization bits by using the constructor FuseConnSet.
+        fuseInit :: FuseConnInfo -> IO FuseConnInfo,
 
         -- | Called on filesystem exit to allow cleanup.
         fuseDestroy :: IO ()
@@ -403,7 +476,7 @@ data FuseOperations fh = FuseOperations
 -- | Empty \/ default versions of the FUSE operations.
 defaultFuseOps :: FuseOperations fh
 defaultFuseOps =
-    FuseOperations { fuseGetFileStat = \_ -> return (Left eNOSYS)
+    FuseOperations { fuseGetFileStat = \_ _ -> return (Left eNOSYS)
                    , fuseReadSymbolicLink = \_ -> return (Left eNOSYS)
                    , fuseCreateDevice = \_ _ _ _ ->  return eNOSYS
                    , fuseCreateDirectory = \_ _ -> return eNOSYS
@@ -414,7 +487,7 @@ defaultFuseOps =
                    , fuseCreateLink = \_ _ -> return eNOSYS
                    , fuseSetFileMode = \_ _ -> return eNOSYS
                    , fuseSetOwnerAndGroup = \_ _ _ -> return eNOSYS
-                   , fuseSetFileSize = \_ _ -> return eNOSYS
+                   , fuseSetFileSize = \_ _ _ -> return eNOSYS
                    , fuseSetFileTimes = \_ _ _ -> return eNOSYS
                    , fuseOpen =   \_ _ _   -> return (Left eNOSYS)
                    , fuseRead =   \_ _ _ _ -> return (Left eNOSYS)
@@ -422,13 +495,13 @@ defaultFuseOps =
                    , fuseGetFileSystemStats = \_ -> return (Left eNOSYS)
                    , fuseFlush = \_ _ -> return eOK
                    , fuseRelease = \_ _ -> return ()
-                   , fuseSynchronizeFile = \_ _ -> return eNOSYS
+                   , fuseSynchronizeFile = \_ _ _ -> return eNOSYS
                    , fuseOpenDirectory = \_ -> return eNOSYS
                    , fuseReadDirectory = \_ -> return (Left eNOSYS)
                    , fuseReleaseDirectory = \_ -> return eNOSYS
                    , fuseSynchronizeDirectory = \_ _ -> return eNOSYS
                    , fuseAccess = \_ _ -> return eNOSYS
-                   , fuseInit = return ()
+                   , fuseInit = return . id
                    , fuseDestroy = return ()
                    }
 
@@ -453,27 +526,29 @@ withStructFuse pFuseChan pArgs ops handler f =
     allocaBytes (#size struct fuse_operations) $ \ pOps -> do
       bzero pOps (#size struct fuse_operations)
       mkGetAttr    wrapGetAttr    >>= (#poke struct fuse_operations, getattr)    pOps
-      mkReadLink   wrapReadLink   >>= (#poke struct fuse_operations, readlink)   pOps 
+      mkFGetAttr   wrapFGetAttr   >>= (#poke struct fuse_operations, fgetattr)   pOps
+      mkReadLink   wrapReadLink   >>= (#poke struct fuse_operations, readlink)   pOps
       -- getdir is deprecated and thus unsupported
       (#poke struct fuse_operations, getdir)    pOps nullPtr
-      mkMkNod      wrapMkNod      >>= (#poke struct fuse_operations, mknod)      pOps 
-      mkMkDir      wrapMkDir      >>= (#poke struct fuse_operations, mkdir)      pOps 
-      mkUnlink     wrapUnlink     >>= (#poke struct fuse_operations, unlink)     pOps 
-      mkRmDir      wrapRmDir      >>= (#poke struct fuse_operations, rmdir)      pOps 
-      mkSymLink    wrapSymLink    >>= (#poke struct fuse_operations, symlink)    pOps 
-      mkRename     wrapRename     >>= (#poke struct fuse_operations, rename)     pOps 
-      mkLink       wrapLink       >>= (#poke struct fuse_operations, link)       pOps 
-      mkChMod      wrapChMod      >>= (#poke struct fuse_operations, chmod)      pOps 
-      mkChOwn      wrapChOwn      >>= (#poke struct fuse_operations, chown)      pOps 
-      mkTruncate   wrapTruncate   >>= (#poke struct fuse_operations, truncate)   pOps 
+      mkMkNod      wrapMkNod      >>= (#poke struct fuse_operations, mknod)      pOps
+      mkMkDir      wrapMkDir      >>= (#poke struct fuse_operations, mkdir)      pOps
+      mkUnlink     wrapUnlink     >>= (#poke struct fuse_operations, unlink)     pOps
+      mkRmDir      wrapRmDir      >>= (#poke struct fuse_operations, rmdir)      pOps
+      mkSymLink    wrapSymLink    >>= (#poke struct fuse_operations, symlink)    pOps
+      mkRename     wrapRename     >>= (#poke struct fuse_operations, rename)     pOps
+      mkLink       wrapLink       >>= (#poke struct fuse_operations, link)       pOps
+      mkChMod      wrapChMod      >>= (#poke struct fuse_operations, chmod)      pOps
+      mkChOwn      wrapChOwn      >>= (#poke struct fuse_operations, chown)      pOps
+      mkTruncate   wrapTruncate   >>= (#poke struct fuse_operations, truncate)   pOps
+      mkFTruncate  wrapFTruncate  >>= (#poke struct fuse_operations, ftruncate)  pOps
       -- TODO: Deprecated, use utimens() instead.
-      mkUTime      wrapUTime      >>= (#poke struct fuse_operations, utime)      pOps 
-      mkOpen       wrapOpen       >>= (#poke struct fuse_operations, open)       pOps 
-      mkRead       wrapRead       >>= (#poke struct fuse_operations, read)       pOps 
-      mkWrite      wrapWrite      >>= (#poke struct fuse_operations, write)      pOps 
+      mkUTime      wrapUTime      >>= (#poke struct fuse_operations, utime)      pOps
+      mkOpen       wrapOpen       >>= (#poke struct fuse_operations, open)       pOps
+      mkRead       wrapRead       >>= (#poke struct fuse_operations, read)       pOps
+      mkWrite      wrapWrite      >>= (#poke struct fuse_operations, write)      pOps
       mkStatFS     wrapStatFS     >>= (#poke struct fuse_operations, statfs)     pOps
       mkFlush      wrapFlush      >>= (#poke struct fuse_operations, flush)      pOps
-      mkRelease    wrapRelease    >>= (#poke struct fuse_operations, release)    pOps 
+      mkRelease    wrapRelease    >>= (#poke struct fuse_operations, release)    pOps
       mkFSync      wrapFSync      >>= (#poke struct fuse_operations, fsync)      pOps
       -- TODO: Implement these
       (#poke struct fuse_operations, setxattr)    pOps nullPtr
@@ -496,10 +571,21 @@ withStructFuse pFuseChan pArgs ops handler f =
                        (fuse_destroy structFuse)
     where fuseHandler :: e -> IO CInt
           fuseHandler e = handler e >>= return . unErrno
+          
+          wrapFGetAttr :: CFGetAttr
+          wrapFGetAttr pFilePath pStat pFuseFileInfo = handle fuseHandler $
+              do filePath <- peekCString pFilePath
+                 cVal <- getFH pFuseFileInfo
+                 eitherFileStat <- (fuseGetFileStat ops) filePath (Just cVal)
+                 case eitherFileStat of
+                   Left (Errno errno) -> return (- errno)
+                   Right stat         -> do fileStatToCStat stat pStat
+                                            return okErrno
+
           wrapGetAttr :: CGetAttr
           wrapGetAttr pFilePath pStat = handle fuseHandler $
               do filePath <- peekCString pFilePath
-                 eitherFileStat <- (fuseGetFileStat ops) filePath
+                 eitherFileStat <- (fuseGetFileStat ops) filePath Nothing
                  case eitherFileStat of
                    Left (Errno errno) -> return (- errno)
                    Right stat         -> do fileStatToCStat stat pStat
@@ -570,7 +656,13 @@ withStructFuse pFuseChan pArgs ops handler f =
           wrapTruncate :: CTruncate
           wrapTruncate pFilePath off = handle fuseHandler $
               do filePath <- peekCString pFilePath
-                 (Errno errno) <- (fuseSetFileSize ops) filePath off
+                 (Errno errno) <- (fuseSetFileSize ops) filePath off Nothing
+                 return (- errno)
+          wrapFTruncate :: CFTruncate
+          wrapFTruncate pFilePath off pFuseFileInfo = handle fuseHandler $
+              do filePath <- peekCString pFilePath
+                 cVal <- getFH pFuseFileInfo
+                 (Errno errno) <- (fuseSetFileSize ops) filePath off (Just cVal)
                  return (- errno)
           wrapUTime :: CUTime
           wrapUTime pFilePath pUTimBuf = handle fuseHandler $
@@ -587,6 +679,7 @@ withStructFuse pFuseChan pArgs ops handler f =
                  let append    = (#const O_APPEND)   .&. flags == (#const O_APPEND)
                      noctty    = (#const O_NOCTTY)   .&. flags == (#const O_NOCTTY)
                      nonBlock  = (#const O_NONBLOCK) .&. flags == (#const O_NONBLOCK)
+                     trunc     = (#const O_TRUNC)    .&. flags == (#const O_TRUNC)
                      how | (#const O_RDWR) .&. flags == (#const O_RDWR) = ReadWrite
                          | (#const O_WRONLY) .&. flags == (#const O_WRONLY) = WriteOnly
                          | otherwise = ReadOnly
@@ -594,7 +687,7 @@ withStructFuse pFuseChan pArgs ops handler f =
                                                    , exclusive = False
                                                    , noctty = noctty
                                                    , nonBlock = nonBlock
-                                                   , trunc = False
+                                                   , trunc = trunc
                                                    }
                  result <- (fuseOpen ops) filePath how openFileFlags
                  case result of
@@ -667,8 +760,9 @@ withStructFuse pFuseChan pArgs ops handler f =
           wrapFSync :: CFSync
           wrapFSync pFilePath isFullSync pFuseFileInfo = handle fuseHandler $
               do filePath <- peekCString pFilePath
+                 cVal     <- getFH pFuseFileInfo
                  (Errno errno) <- (fuseSynchronizeFile ops)
-                                      filePath (toEnum isFullSync)
+                                      filePath (toEnum isFullSync) cVal
                  return (- errno)
           wrapOpenDir :: COpenDir
           wrapOpenDir pFilePath pFuseFileInfo = handle fuseHandler $
@@ -715,7 +809,8 @@ withStructFuse pFuseChan pArgs ops handler f =
           wrapInit :: CInit
           wrapInit pFuseConnInfo =
             handle (\e -> defaultExceptionHandler e >> return nullPtr) $
-              do fuseInit ops
+              do fuseConnInfo <- getFuseConnInfo pFuseConnInfo
+                 fuseInit ops fuseConnInfo >>= setFuseConnInfo pFuseConnInfo
                  return nullPtr
           wrapDestroy :: CDestroy
           wrapDestroy _ = handle (\e -> defaultExceptionHandler e >> return ()) $
@@ -925,6 +1020,10 @@ type CGetAttr = CString -> Ptr CStat -> IO CInt
 foreign import ccall safe "wrapper"
     mkGetAttr :: CGetAttr -> IO (FunPtr CGetAttr)
 
+type CFGetAttr = CString -> Ptr CStat -> Ptr CFuseFileInfo -> IO CInt
+foreign import ccall safe "wrapper"
+    mkFGetAttr :: CFGetAttr -> IO (FunPtr CFGetAttr)
+
 type CReadLink = CString -> CString -> CSize -> IO CInt
 foreign import ccall safe "wrapper"
     mkReadLink :: CReadLink -> IO (FunPtr CReadLink)
@@ -968,6 +1067,10 @@ foreign import ccall safe "wrapper"
 type CTruncate = CString -> COff -> IO CInt
 foreign import ccall safe "wrapper"
     mkTruncate :: CTruncate -> IO (FunPtr CTruncate)
+
+type CFTruncate = CString -> COff -> Ptr CFuseFileInfo -> IO CInt
+foreign import ccall safe "wrapper"
+    mkFTruncate :: CFTruncate -> IO (FunPtr CFTruncate)
 
 data CUTimBuf -- struct utimbuf
 type CUTime = CString -> Ptr CUTimBuf -> IO CInt
@@ -1030,6 +1133,38 @@ foreign import ccall safe "wrapper"
 type CInit = Ptr CFuseConnInfo -> IO (Ptr CInt)
 foreign import ccall safe "wrapper"
     mkInit :: CInit -> IO (FunPtr CInit)
+
+setFuseConnInfo pFuseConnInfo v
+    | isFuseConnInfo v = return ()
+    | otherwise        = do (#poke struct fuse_conn_info, async_read) pFuseConnInfo cAsyncRead
+                            (#poke struct fuse_conn_info, max_write) pFuseConnInfo cMaxWrite
+                            (#poke struct fuse_conn_info, max_readahead) pFuseConnInfo cMaxReadAhead
+                            (#poke struct fuse_conn_info, want) pFuseConnInfo (fuseCapsToCFuseCap $ want v)
+  where cAsyncRead :: CUInt
+        cAsyncRead = if (asyncRead v) then 1 else 0
+
+        cMaxWrite :: CUInt
+        cMaxWrite = fromIntegral $ maxWrite v
+
+        cMaxReadAhead :: CUInt
+        cMaxReadAhead = fromIntegral $ maxReadAhead v
+
+getFuseConnInfo pFuseConnInfo = do
+  (vProtoMajor::CUInt)   <- (#peek struct fuse_conn_info, proto_major)   pFuseConnInfo
+  (vProtoMinor::CUInt)   <- (#peek struct fuse_conn_info, proto_minor)   pFuseConnInfo
+  (vAsyncRead::CUInt)    <- (#peek struct fuse_conn_info, async_read)    pFuseConnInfo
+  (vMaxWrite::CUInt)     <- (#peek struct fuse_conn_info, max_write)     pFuseConnInfo
+  (vMaxReadAhead::CUInt) <- (#peek struct fuse_conn_info, max_readahead) pFuseConnInfo
+  (vCapable::CUInt)      <- (#peek struct fuse_conn_info, capable)       pFuseConnInfo
+  (vWant::CUInt)         <- (#peek struct fuse_conn_info, want)          pFuseConnInfo
+  return (FuseConnInfo { protoMajor    = fromIntegral vProtoMajor
+                       , protoMinor    = fromIntegral vProtoMinor
+                       , asyncRead     = vAsyncRead /= 0
+                       , maxWrite      = fromIntegral vMaxWrite
+                       , maxReadAhead  = fromIntegral vMaxReadAhead
+                       , capable       = cFuseCapToFuseCap vCapable
+                       , want          = cFuseCapToFuseCap vWant
+                       })
 
 type CDestroy = Ptr CInt -> IO ()
 foreign import ccall safe "wrapper"
