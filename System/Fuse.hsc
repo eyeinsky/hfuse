@@ -21,6 +21,8 @@
 --
 -----------------------------------------------------------------------------
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE CPP #-}
 module System.Fuse
     ( -- * Using FUSE
 
@@ -70,7 +72,11 @@ import System.Posix.IO ( OpenMode(..), OpenFileFlags(..) )
 import qualified System.Posix.Signals as Signals
 import GHC.IO.Handle(hDuplicateTo)
 import System.Exit
-import qualified System.IO.Error as IO(catch,ioeGetErrorString)
+#if MIN_VERSION_base(4,6,0)
+import System.IO.Error (catchIOError,ioeGetErrorString)
+#else
+import System.IO.Error (catch,ioeGetErrorString)
+#endif
 
 -- TODO: FileMode -> Permissions
 -- TODO: Arguments !
@@ -757,16 +763,17 @@ fuseParseCommandLine pArgs =
 -- Mimic's daemon()s use of _exit() instead of exit(); we depend on this in fuseMainReal,
 -- because otherwise we'll unmount the filesystem when the foreground process exits.
 daemon f = forkProcess d >> exitImmediately ExitSuccess
-  where d = IO.catch (do createSession
-                         changeWorkingDirectory "/"
-                         -- need to open /dev/null twice because hDuplicateTo can't dup a ReadWriteMode to a ReadMode handle
-                         withFile "/dev/null" WriteMode (\devNullOut ->
-                           do hDuplicateTo devNullOut stdout
-                              hDuplicateTo devNullOut stderr)
-                         withFile "/dev/null" ReadMode (\devNullIn -> hDuplicateTo devNullIn stdin)
-                         f
-                         exitWith ExitSuccess)
-                     (const exitFailure)
+  where d = catch (do createSession
+                      changeWorkingDirectory "/"
+                      -- need to open /dev/null twice because hDuplicateTo can't dup a
+                      -- ReadWriteMode to a ReadMode handle
+                      withFile "/dev/null" WriteMode (\devNullOut ->
+                         do hDuplicateTo devNullOut stdout
+                            hDuplicateTo devNullOut stderr)
+                      withFile "/dev/null" ReadMode (\devNullIn -> hDuplicateTo devNullIn stdin)
+                      f
+                      exitWith ExitSuccess)
+                  (const exitFailure)
 
 -- Installs signal handlers for the duration of the main loop.
 withSignalHandlers exitHandler f =
@@ -843,14 +850,14 @@ fuseMain ops handler = do
 
 fuseRun :: String -> [String] -> Exception e => FuseOperations fh -> (e -> IO Errno) -> IO ()
 fuseRun prog args ops handler =
-    IO.catch
+    catch
        (withFuseArgs prog args (\pArgs ->
          do cmd <- fuseParseCommandLine pArgs
             case cmd of
               Nothing -> fail ""
               Just (Nothing, _, _) -> fail "Usage error: mount point required"
               Just (Just mountPt, _, foreground) -> fuseMainReal foreground ops handler pArgs mountPt))
-       ((\errStr -> when (not $ null errStr) (putStrLn errStr) >> exitFailure) . IO.ioeGetErrorString)
+       ((\errStr -> when (not $ null errStr) (putStrLn errStr) >> exitFailure) . ioeGetErrorString)
 
 -----------------------------------------------------------------------------
 -- Miscellaneous utilities
@@ -868,6 +875,11 @@ pokeCStringLen (pBuf, bufSize) src =
 pokeCStringLen0 :: CStringLen -> String -> IO ()
 pokeCStringLen0 (pBuf, bufSize) src =
     pokeArray0 0 pBuf $ take (bufSize - 1) $ map castCharToCChar src
+
+#if MIN_VERSION_base(4,6,0)
+catch = catchIOError
+#else
+#endif
 
 -----------------------------------------------------------------------------
 -- C land
