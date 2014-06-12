@@ -1,5 +1,5 @@
 Name:                   HFuse
-Version:                0.2.4.2
+Version:                0.2.4.3
 License:                BSD3
 License-File:           LICENSE
 Author:                 Jeremy Bobbio
@@ -19,17 +19,20 @@ Library
   Extensions:             ForeignFunctionInterface ScopedTypeVariables EmptyDataDecls
   Includes:               dirent.h, fuse.h, fcntl.h
   Include-Dirs:           /usr/include, /usr/local/include, .
-  if os(darwin) {
+  if os(darwin)
       CC-Options:           "-DMACFUSE"
-      CC-Options:           "-DFUSE_USE_VERSION=26"
       Include-Dirs:           /usr/local/include/osxfuse
-  } else {
-      Includes:               sys/statfs.h
-  }
+  else
+      if os(freebsd) 
+         Includes:           sys/param.h, sys/mount.h
+         CC-Options:           "-Df_namelen=f_namemax"
+      else
+         Includes:               sys/statfs.h
+  
   Extra-Libraries:        fuse
   Extra-Lib-Dirs:         /usr/local/lib
-  CC-Options:             -D_FILE_OFFSET_BITS=64
+  CC-Options:             "-D_FILE_OFFSET_BITS=64"
 
 source-repository head
-    type:       head
-    location:   https://github.com/toothbrush/hfuse.git
+    type:       git
+    location:   https://github.com/m15k/hfuse.git
