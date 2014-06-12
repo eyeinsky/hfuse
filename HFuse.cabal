@@ -1,14 +1,15 @@
 Name:                   HFuse
-Version:                0.2.4
+Version:                0.2.4.1
 License:                BSD3
-License-File:		LICENSE
+License-File:           LICENSE
 Author:                 Jeremy Bobbio
-Maintainer: 		Taru Karttunen <taruti@taruti.net>
+Maintainer:             Paul van der Walt <cabal@denknerd.org>
 Synopsis:               HFuse is a binding for the Linux FUSE library.
-Homepage:               http://code.haskell.org/hfuse
+Description:            Bindings for the FUSE library, compatible with OSXFUSE.
+Homepage:               https://github.com/toothbrush/hfuse
 Category:               System
 Stability:              Experimental
-Cabal-Version:          >= 1.2
+Cabal-Version:          >= 1.6
 Build-Type:             Simple
 Extra-source-files:     README
 
@@ -16,16 +17,19 @@ Library
   Build-Depends:          base >= 4 && < 5, unix, bytestring
   exposed-Modules:        System.Fuse
   Extensions:             ForeignFunctionInterface ScopedTypeVariables EmptyDataDecls
-  
+  Includes:               dirent.h, fuse.h, fcntl.h
   Include-Dirs:           /usr/include, /usr/local/include, .
+  if os(darwin) {
+      CC-Options:           "-DMACFUSE"
+      CC-Options:           "-DFUSE_USE_VERSION=26"
+      Include-Dirs:           /usr/local/include/osxfuse
+  } else {
+      Includes:               sys/statfs.h
+  }
   Extra-Libraries:        fuse
   Extra-Lib-Dirs:         /usr/local/lib
   CC-Options:             -D_FILE_OFFSET_BITS=64
-  if os(darwin) {
-    CC-Options:           "-DMACFUSE"
-    CC-Options:           "-D__FreeBSD__=10"
-    CC-Options:           "-DFUSE_USE_VERSION=26"
-    Includes:             dirent.h, fuse.h, fcntl.h 
-  } else {
-    Includes:               sys/statfs.h, dirent.h, fuse.h, fcntl.h
-  }
+
+source-repository head
+    type:       head
+    location:   https://github.com/toothbrush/hfuse.git
