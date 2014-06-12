@@ -3,10 +3,10 @@ Version:                0.2.4.2
 License:                BSD3
 License-File:           LICENSE
 Author:                 Jeremy Bobbio
-Maintainer:             Paul van der Walt <cabal@denknerd.org>
+Maintainer:             Montez Fitzpatrick <montezf@gmail.com>
 Synopsis:               HFuse is a binding for the Linux FUSE library.
 Description:            Bindings for the FUSE library, compatible with OSXFUSE.
-Homepage:               https://github.com/toothbrush/hfuse
+Homepage:               https://github.com/m15k/hfuse
 Category:               System
 Stability:              Experimental
 Cabal-Version:          >= 1.6
