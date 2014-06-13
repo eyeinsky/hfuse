@@ -1,4 +1,17 @@
-Programs using HFuse should be compiled with -threaded.
+# Haskell FUSE API #
+
+Filesystem in Userspace ("FUSE") makes it possible to implement a filesystem as a userspace program.
+
+This library is the Haskell binding to this library.
+
+## Information ##
+
+- Programs using HFuse should be compiled with -threaded.
+- This now works for base 4.6+
+- Added build options support for FreeBSD (contribution by https://github.com/pesco)
+
+
+## Examples ##
 
 HelloFS seems to work with:
 * Linux 2.6.24

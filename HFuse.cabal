@@ -1,11 +1,11 @@
 Name:                   HFuse
-Version:                0.2.4.3
+Version:                0.2.4.2
 License:                BSD3
 License-File:           LICENSE
 Author:                 Jeremy Bobbio
 Maintainer:             Montez Fitzpatrick <montezf@gmail.com>
 Synopsis:               HFuse is a binding for the Linux FUSE library.
-Description:            Bindings for the FUSE library, compatible with OSXFUSE.
+Description:            Bindings for the FUSE library, compatible with OSXFUSE and FreeBSD.
 Homepage:               https://github.com/m15k/hfuse
 Category:               System
 Stability:              Experimental
