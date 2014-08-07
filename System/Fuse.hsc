@@ -4,9 +4,9 @@
 -- Copyright   :  (c) Jérémy Bobbio, Taru Karttunen
 -- License     :  BSD-style
 -- 
--- Maintainer  :  taruti@taruti.net, jeremy.bobbio@etu.upmc.fr
+-- Maintainer  :  Montez Fitzpatrick
 -- Stability   :  experimental
--- Portability :  GHC 6.4-6.12
+-- Portability :  GHC 6.4-7.8.2
 --
 -- A binding for the FUSE (Filesystem in USErspace) library
 -- (<http://fuse.sourceforge.net/>), which allows filesystems to be implemented

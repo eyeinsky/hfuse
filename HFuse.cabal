@@ -1,21 +1,24 @@
 Name:                   HFuse
-Version:                0.2.4.2
+Version:                0.2.4.3
 License:                BSD3
 License-File:           LICENSE
 Author:                 Jeremy Bobbio
 Maintainer:             Montez Fitzpatrick <montezf@gmail.com>
 Synopsis:               HFuse is a binding for the Linux FUSE library.
-Description:            Bindings for the FUSE library, compatible with OSXFUSE and FreeBSD.
+Description:            Bindings for the FUSE library, compatible with Linux, OSXFUSE and FreeBSD.
 Homepage:               https://github.com/m15k/hfuse
 Category:               System
 Stability:              Experimental
-Cabal-Version:          >= 1.6
+Cabal-Version:          >= 1.10
 Build-Type:             Simple
 Extra-source-files:     README
 
+flag developer
+  default: False
+
 Library
   Build-Depends:          base >= 4 && < 5, unix, bytestring
-  exposed-Modules:        System.Fuse
+  Exposed-Modules:        System.Fuse
   Extensions:             ForeignFunctionInterface ScopedTypeVariables EmptyDataDecls
   Includes:               dirent.h, fuse.h, fcntl.h
   Include-Dirs:           /usr/include, /usr/local/include, .
@@ -23,15 +26,26 @@ Library
       CC-Options:           "-DMACFUSE"
       Include-Dirs:           /usr/local/include/osxfuse
   else
-      if os(freebsd) 
+      if os(freebsd)
          Includes:           sys/param.h, sys/mount.h
          CC-Options:           "-Df_namelen=f_namemax"
       else
          Includes:               sys/statfs.h
-  
+
   Extra-Libraries:        fuse
   Extra-Lib-Dirs:         /usr/local/lib
   CC-Options:             "-D_FILE_OFFSET_BITS=64"
+
+executable HelloFS
+  if flag(developer)
+    buildable: True
+    build-depends:  base >= 4 && < 5, HFuse, unix, bytestring
+  else
+    buildable: False
+  main-is: HelloFS.hs
+  hs-source-dirs: examples
+  ghc-options: -threaded
+  default-language: Haskell2010
 
 source-repository head
     type:       git

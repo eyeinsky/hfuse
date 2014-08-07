@@ -1,28 +1,104 @@
-# Haskell FUSE API #
+# Haskell FUSE API
 
 Filesystem in Userspace ("FUSE") makes it possible to implement a filesystem as a userspace program.
 
 This library is the Haskell binding to this library.
 
-## Information ##
+## License
+
+[BSD 3-Clause](./LICENSE)
+
+## Information
 
 - Programs using HFuse should be compiled with -threaded.
 - This now works for base 4.6+
 - Added build options support for FreeBSD (contribution by https://github.com/pesco)
+- MacFUSE should also work (https://github.com/mwotton/hfuse)
 
+## Installation
 
-## Examples ##
+All of the usual methods for installation will be supported.
 
-HelloFS seems to work with:
-* Linux 2.6.24
-* The Glorious Glasgow Haskell Compilation System, version 6.8.2
-* fuse-2.6
+**Installation via Hackage**
 
-BindFS (?) is known to have a lurking deadlock problem.
+```
+cabal install hfuse
+```
 
-LiveFS is broken (from the old distribution).
+**Installation for development**
 
-Added support for MacFUSE. Tested HelloFS and BindFS with:
-* OSX 10.4.11 on a PPC G4 mac
-* GHC 6.8.3
-* MacFUSE 10.4-1.7.0
+Can either be handled via [Hackage](http://hackage.haskell.org/packages/search?terms=hfuse)
+
+```
+cabal unpack hfuse
+cd HFuse-0.2.4.3
+cabal sandbox init
+cabal install --only-dependencies
+cabal install -fdeveloper
+```
+
+Or the library can be installed via Github [repo][2]
+
+```
+git clone git://github.com/m15k/hfuse
+cd hfuse
+cabal sandbox init
+cabal install --only-dependencies
+cabal install -fdeveloper
+```
+
+**NOTE!**
+
+* To use the sandboxes feature in Cabal your version must be higher than 1.18. *highly recommended*
+
+## Development
+
+To get a feel for HFuse, there are a number of example applications.  They can be built by supplying the `-fdeveloper` [configuration flag][3] to Cabal.
+
+> git clone https://github.com/m15k/hfuse
+
+## Examples
+
+[HelloFS](./examples/HelloFS.hs) is as basic as you get.  Haskell version of the canonicial [example](http://fuse.sourceforge.net/helloworld.html) from the FUSE project.  Once compiled here is how you run HelloFS.
+
+```
+$ mkdir ~/fuseTest
+$ ./HelloFS ~/fuseTest
+```
+
+This creates a file in the *fuseTest* directory.  Now to test the application.
+
+```
+$ cat ~/fuseTest/hello
+Hello World, HFuse!
+```
+
+To unmount issue the following command:
+
+```
+$ fusermount -u ~/fuseTest
+```
+
+## Other Samples
+
+There are other projects on hackage which use HFuse as a dependency.  Check [these](http://packdeps.haskellers.com/reverse/HFuse) out for a possibly richer experience than what is included with the [examples](./examples) folder.
+
+If you lack for inspiration the FUSE [Wiki](http://sourceforge.net/p/fuse/wiki/FileSystems/) has amassed a derth of links to downstream projects.
+
+## Contributions
+
+Help is always welcome.
+
+If you run into any problems, please report the issue on [Github][1]
+
+## RoadMap
+
+I would like to create the following examples:
+
+- MemoryFS.hs := In-memory file system
+- VBoxFS.hs := Mount VirtualBox disks as filesystem
+- SSHFS.hs := SSH file system
+
+[1]: https://github.com/m15k/google-drive-api/issues        "Google-Drive-API Library Issues"
+[2]: https://github.com/m15k/google-drive-api               "Google-Drive-API Library"
+[3]: http://www.haskell.org/cabal/users-guide/developing-packages.html#configurations "Cabal Configurations"
