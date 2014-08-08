@@ -13,7 +13,7 @@ Cabal-Version:          >= 1.10
 Build-Type:             Simple
 Extra-source-files:     
         CHANGELOG.md
-        README
+        README.md
 
 flag developer
   default: False
