@@ -21,7 +21,7 @@ flag developer
 Library
   Build-Depends:          base >= 4 && < 5, unix, bytestring
   Exposed-Modules:        System.Fuse
-  Extensions:             ForeignFunctionInterface ScopedTypeVariables EmptyDataDecls
+  Default-Extensions:             ForeignFunctionInterface ScopedTypeVariables EmptyDataDecls
   Includes:               dirent.h, fuse.h, fcntl.h
   Include-Dirs:           /usr/include, /usr/local/include, .
   if os(darwin)
@@ -37,6 +37,7 @@ Library
   Extra-Libraries:        fuse
   Extra-Lib-Dirs:         /usr/local/lib
   CC-Options:             "-D_FILE_OFFSET_BITS=64"
+  Default-Language:       Haskell2010
 
 executable HelloFS
   if flag(developer)
@@ -47,7 +48,7 @@ executable HelloFS
   main-is: HelloFS.hs
   hs-source-dirs: examples
   ghc-options: -threaded
-  default-language: Haskell2010
+  Default-Language: Haskell2010
 
 source-repository head
     type:       git
