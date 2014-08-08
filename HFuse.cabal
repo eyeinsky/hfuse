@@ -11,7 +11,9 @@ Category:               System
 Stability:              Experimental
 Cabal-Version:          >= 1.10
 Build-Type:             Simple
-Extra-source-files:     README
+Extra-source-files:     
+        CHANGELOG.md
+        README
 
 flag developer
   default: False
