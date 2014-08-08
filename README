@@ -59,7 +59,7 @@ To get a feel for HFuse, there are a number of example applications.  They can b
 
 ## Examples
 
-[HelloFS](./examples/HelloFS.hs) is as basic as you get.  Haskell version of the canonicial [example](http://fuse.sourceforge.net/helloworld.html) from the FUSE project.  Once compiled here is how you run HelloFS.
+[HelloFS](./examples/HelloFS.hs) is as basic as you get.  Haskell version of the canonical [example](http://fuse.sourceforge.net/helloworld.html) from the FUSE project.  Once compiled here is how you run HelloFS.
 
 ```
 $ mkdir ~/fuseTest
@@ -83,13 +83,13 @@ $ fusermount -u ~/fuseTest
 
 There are other projects on hackage which use HFuse as a dependency.  Check [these](http://packdeps.haskellers.com/reverse/HFuse) out for a possibly richer experience than what is included with the [examples](./examples) folder.
 
-If you lack for inspiration the FUSE [Wiki](http://sourceforge.net/p/fuse/wiki/FileSystems/) has amassed a derth of links to downstream projects.
+If you lack for inspiration the FUSE [Wiki](http://sourceforge.net/p/fuse/wiki/FileSystems/) have amassed quite the list of links to downstream projects.
 
 ## Contributions
 
-Help is always welcome.
+Help is always welcome.  Pull requests are appreciated.
 
-If you run into any problems, please report the issue on [Github][1]
+If you run into any problems or bugs, please report the issue on [Github][1]
 
 ## RoadMap
 
