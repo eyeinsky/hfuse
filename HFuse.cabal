@@ -20,23 +20,19 @@ flag developer
 
 Library
   Build-Depends:          base >= 4 && < 5, unix, bytestring
+  Pkgconfig-Depends:      fuse
   Exposed-Modules:        System.Fuse
   Extensions:             ForeignFunctionInterface ScopedTypeVariables EmptyDataDecls
-  Includes:               dirent.h, fuse.h, fcntl.h
+  Includes:               dirent.h, fcntl.h
   Include-Dirs:           /usr/include, /usr/local/include, .
   if os(darwin)
       CC-Options:           "-DMACFUSE"
-      Include-Dirs:           /usr/local/include/osxfuse
   else
       if os(freebsd)
          Includes:           sys/param.h, sys/mount.h
          CC-Options:           "-Df_namelen=f_namemax"
       else
          Includes:               sys/statfs.h
-
-  Extra-Libraries:        fuse
-  Extra-Lib-Dirs:         /usr/local/lib
-  CC-Options:             "-D_FILE_OFFSET_BITS=64"
 
 executable HelloFS
   if flag(developer)
