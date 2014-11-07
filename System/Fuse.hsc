@@ -501,7 +501,7 @@ withStructFuse pFuseChan pArgs ops handler f =
         else E.finally (f structFuse)
                        (fuse_destroy structFuse)
     where fuseHandler :: e -> IO CInt
-          fuseHandler e = handler e >>= return . unErrno
+          fuseHandler e = handler e >>= return . negate . unErrno
           wrapGetAttr :: CGetAttr
           wrapGetAttr pFilePath pStat = handle fuseHandler $
               do filePath <- peekCString pFilePath
