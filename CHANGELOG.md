@@ -1,6 +1,11 @@
 Changelog
 =========
 
+v0.2.4.4
+--------
+
+- Fixed handling of exceptions
+
 v0.2.4.3
 --------
 
