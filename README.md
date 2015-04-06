@@ -14,10 +14,12 @@ This library is the Haskell binding to this library.
 - This now works for base 4.6+
 - Added build options support for FreeBSD (contribution by https://github.com/pesco)
 - MacFUSE should also work (https://github.com/mwotton/hfuse)
+- [OSXFuse](https://osxfuse.github.io/) also works (https://github.com/edyu/hfuse)
 
 ## Installation
 
 All of the usual methods for installation will be supported.
+For Mac OS X, you must install [OSXFuse](https://osxfuse.github.io/) first.
 
 **Installation via Hackage**
 
@@ -31,7 +33,7 @@ Can either be handled via [Hackage](http://hackage.haskell.org/packages/search?t
 
 ```
 cabal unpack hfuse
-cd HFuse-0.2.4.3
+cd HFuse-0.2.4.4
 cabal sandbox init
 cabal install --only-dependencies
 cabal install -fdeveloper
