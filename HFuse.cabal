@@ -1,5 +1,5 @@
 Name:                   HFuse
-Version:                0.2.4.4
+Version:                0.2.4.5
 License:                BSD3
 License-File:           LICENSE
 Author:                 Jeremy Bobbio
@@ -11,7 +11,7 @@ Category:               System
 Stability:              Experimental
 Cabal-Version:          >= 1.10
 Build-Type:             Simple
-Extra-source-files:     
+Extra-source-files:
         CHANGELOG.md
         README.md
 
@@ -56,4 +56,4 @@ executable HelloFS
 
 source-repository head
     type:       git
-    location:   https://github.com/m15k/hfuse.git
+    location:   git://github.com/m15k/hfuse.git
