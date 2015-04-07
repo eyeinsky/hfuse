@@ -26,6 +26,7 @@ Library
   Include-Dirs:           /usr/include, /usr/local/include, .
   if os(darwin)
       CC-Options:           "-DMACFUSE"
+      CC-Options:           "-DFUSE_USE_VERSION=26"
       Include-Dirs:           /usr/local/include/osxfuse
   else
       if os(freebsd)
@@ -34,7 +35,10 @@ Library
       else
          Includes:               sys/statfs.h
 
-  Extra-Libraries:        fuse
+  if os(darwin)
+      Extra-Libraries:        osxfuse
+  else
+      Extra-Libraries:        fuse
   Extra-Lib-Dirs:         /usr/local/lib
   CC-Options:             "-D_FILE_OFFSET_BITS=64"
   Default-Language:       Haskell2010
