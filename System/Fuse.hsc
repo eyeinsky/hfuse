@@ -631,30 +631,26 @@ withStructFuse pFuseChan pArgs ops handler f =
                    Left  (Errno errno) -> return (- errno)
                    Right bytes         -> return (fromIntegral bytes)
           wrapStatFS :: CStatFS
-          wrapStatFS pStr pStatFS = handle fuseHandler $
+          wrapStatFS pStr pStatVFS = handle fuseHandler $
             do str <- peekCString pStr
-               eitherStatFS <- (fuseGetFileSystemStats ops) str
-               case eitherStatFS of
+               eitherStatVFS <- (fuseGetFileSystemStats ops) str
+               case eitherStatVFS of
                  Left (Errno errno) -> return (- errno)
                  Right stat         ->
-                   do (#poke struct statfs, f_bsize) pStatFS
+                   do (#poke struct statvfs, f_bsize) pStatVFS
                           (fromIntegral (fsStatBlockSize stat) :: (#type long))
-                      (#poke struct statfs, f_blocks) pStatFS
-                          (fromIntegral (fsStatBlockCount stat) :: (#type long))
-                      (#poke struct statfs, f_bfree) pStatFS
-                          (fromIntegral (fsStatBlocksFree stat) :: (#type long))
-                      (#poke struct statfs, f_bavail) pStatFS
-                          (fromIntegral (fsStatBlocksAvailable
-                                             stat) :: (#type long))
-                      (#poke struct statfs, f_files) pStatFS
-                           (fromIntegral (fsStatFileCount stat) :: (#type long))
-                      (#poke struct statfs, f_ffree) pStatFS
-                          (fromIntegral (fsStatFilesFree stat) :: (#type long))
-#ifndef MACFUSE
--- OSX doesn't support 'max name length'
-                      (#poke struct statfs, f_namelen) pStatFS
+                      (#poke struct statvfs, f_blocks) pStatVFS
+                          (fromIntegral (fsStatBlockCount stat) :: (#type fsblkcnt_t))
+                      (#poke struct statvfs, f_bfree) pStatVFS
+                          (fromIntegral (fsStatBlocksFree stat) :: (#type fsblkcnt_t))
+                      (#poke struct statvfs, f_bavail) pStatVFS
+                          (fromIntegral (fsStatBlocksAvailable stat) :: (#type fsblkcnt_t))
+                      (#poke struct statvfs, f_files) pStatVFS
+                           (fromIntegral (fsStatFileCount stat) :: (#type fsfilcnt_t))
+                      (#poke struct statvfs, f_ffree) pStatVFS
+                          (fromIntegral (fsStatFilesFree stat) :: (#type fsfilcnt_t))
+                      (#poke struct statvfs, f_namemax) pStatVFS
                           (fromIntegral (fsStatMaxNameLength stat) :: (#type long))
-#endif
                       return 0
           wrapFlush :: CFlush
           wrapFlush pFilePath pFuseFileInfo = handle fuseHandler $
@@ -1004,8 +1000,8 @@ type CWrite = CString -> CString -> CSize -> COff -> Ptr CFuseFileInfo -> IO CIn
 foreign import ccall safe "wrapper"
     mkWrite :: CWrite -> IO (FunPtr CWrite)
 
-data CStructStatFS -- struct fuse_stat_fs
-type CStatFS = CString -> Ptr CStructStatFS -> IO CInt
+data CStructStatVFS -- struct fuse_stat_fs
+type CStatFS = CString -> Ptr CStructStatVFS -> IO CInt
 foreign import ccall safe "wrapper"
     mkStatFS :: CStatFS -> IO (FunPtr CStatFS)
 
