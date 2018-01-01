@@ -33,6 +33,9 @@ module System.Fuse
     , defaultFuseOps
     , fuseMain -- :: FuseOperations fh -> (Exception -> IO Errno) -> IO ()
     , fuseRun -- :: String -> [String] -> FuseOperations fh -> (Exception -> IO Errno) -> IO ()
+
+    , fuseMainInline -- :: FuseOperations fh -> (Exception -> IO Errno) -> IO ()
+    , fuseRunInline -- :: String -> [String] -> FuseOperations fh -> (Exception -> IO Errno) -> IO ()
     , defaultExceptionHandler -- :: Exception -> IO Errno
       -- * Operations datatypes
     , FileStat(..)
@@ -53,8 +56,9 @@ module System.Fuse
 
 import Prelude hiding ( Read )
 
+import Control.Concurrent (forkIO, threadDelay)
 import Control.Monad
-import Control.Exception as E(Exception, handle, finally, SomeException)
+import Control.Exception as E (Exception, handle, finally, SomeException, bracket_, bracket)
 import qualified Data.ByteString.Char8    as B
 import qualified Data.ByteString.Internal as B
 import qualified Data.ByteString.Unsafe   as B
@@ -758,6 +762,7 @@ fuseParseCommandLine pArgs =
 -- haskell version of daemon(2)
 -- Mimic's daemon()s use of _exit() instead of exit(); we depend on this in fuseMainReal,
 -- because otherwise we'll unmount the filesystem when the foreground process exits.
+daemon :: IO () -> IO ()
 daemon f = forkProcess d >> exitImmediately ExitSuccess
   where d = catch (do createSession
                       changeWorkingDirectory "/"
@@ -771,45 +776,61 @@ daemon f = forkProcess d >> exitImmediately ExitSuccess
                       exitWith ExitSuccess)
                   (const exitFailure)
 
+runInline :: IO a -> IO ()
+runInline act = Control.Monad.void act
+
 -- Installs signal handlers for the duration of the main loop.
-withSignalHandlers exitHandler f =
-    do let sigHandler = Signals.CatchOnce exitHandler
-       Signals.installHandler Signals.keyboardSignal sigHandler Nothing
-       Signals.installHandler Signals.lostConnection sigHandler Nothing
-       Signals.installHandler Signals.softwareTermination sigHandler Nothing
-       Signals.installHandler Signals.openEndedPipe Signals.Ignore Nothing
-       E.finally f
-                 (do Signals.installHandler Signals.keyboardSignal Signals.Default Nothing
-                     Signals.installHandler Signals.lostConnection Signals.Default Nothing
-                     Signals.installHandler Signals.softwareTermination Signals.Default Nothing
-                     Signals.installHandler Signals.openEndedPipe Signals.Default Nothing)
+withSignalHandlers :: IO () -> IO () -> IO ()
+withSignalHandlers exitHandler = bracket_ setHandlers resetHandlers
+    where   setHandlers = do
+                let sigHandler = Signals.CatchOnce exitHandler
+                Signals.installHandler Signals.keyboardSignal sigHandler Nothing
+                Signals.installHandler Signals.lostConnection sigHandler Nothing
+                Signals.installHandler Signals.softwareTermination sigHandler Nothing
+                Signals.installHandler Signals.openEndedPipe Signals.Ignore Nothing
+            resetHandlers = do
+                Signals.installHandler Signals.keyboardSignal Signals.Default Nothing
+                Signals.installHandler Signals.lostConnection Signals.Default Nothing
+                Signals.installHandler Signals.softwareTermination Signals.Default Nothing
+                Signals.installHandler Signals.openEndedPipe Signals.Default Nothing
 
 -- Mounts the filesystem, forks, and then starts fuse
-fuseMainReal foreground ops handler pArgs mountPt =
-    withCString mountPt (\cMountPt ->
-      do pFuseChan <- fuse_mount cMountPt pArgs
-         if pFuseChan == nullPtr
-           then exitFailure -- fuse will print an error message why this happened
-           else (withStructFuse pFuseChan pArgs ops handler (\pFuse ->
-                  E.finally 
-                     (if foreground -- finally ready to fork
-                       then changeWorkingDirectory "/" >> (procMain pFuse)
-                       else daemon (procMain pFuse))
-                     (fuse_unmount cMountPt pFuseChan))))
-
+fuseMainReal
+    :: Exception e
+    => Bool
+    -> Bool
+    -> FuseOperations fh
+    -> (e -> IO Errno)
+    -> Ptr CFuseArgs
+    -> String
+    -> IO ()
+fuseMainReal inline foreground ops handler pArgs mountPt =
+    let strategy = if inline
+            then runInline
+            else if foreground
+                then (>>) (changeWorkingDirectory "/")
+                else daemon
+     in withCString mountPt $ \cMountPt -> bracket
+        (fuse_mount cMountPt pArgs)
+        (fuse_unmount cMountPt) $ \pFuseChan -> do
+            if pFuseChan == nullPtr
+                then if inline then pure () else exitFailure
+                else withStructFuse pFuseChan pArgs ops handler $ strategy . procMain
     -- here, we're finally inside the daemon process, we can run the main loop
-    where procMain pFuse = do session <- fuse_get_session pFuse
-                              -- calling fuse_session_exit to exit the main loop only
-                              -- appears to work with the multithreaded fuse loop.
-                              -- In the single-threaded case, FUSE depends on their
-                              -- recv() call to finish with EINTR when signals arrive.
-                              -- This doesn't happen with GHC's signal handling in place.
-                              withSignalHandlers (fuse_session_exit session) $
-                                 do retVal <- fuse_loop_mt pFuse
-                                    if retVal == 1 
-                                      then exitWith ExitSuccess
-                                      else exitFailure
-                                    return ()
+    where procMain pFuse = do
+            session <- fuse_get_session pFuse
+            -- calling fuse_session_exit to exit the main loop only
+            -- appears to work with the multithreaded fuse loop.
+            -- In the single-threaded case, FUSE depends on their
+            -- recv() call to finish with EINTR when signals arrive.
+            -- This doesn't happen with GHC's signal handling in place.
+            withSignalHandlers (fuse_session_exit session) $ do
+                retVal <- fuse_loop_mt pFuse
+                when (not inline) $
+                    if retVal == 1
+                        then exitWith ExitSuccess
+                        else exitFailure
+                pure ()
 
 -- | Main function of FUSE.
 -- This is all that has to be called from the @main@ function. On top of
@@ -852,9 +873,30 @@ fuseRun prog args ops handler =
             case cmd of
               Nothing -> fail ""
               Just (Nothing, _, _) -> fail "Usage error: mount point required"
-              Just (Just mountPt, _, foreground) -> fuseMainReal foreground ops handler pArgs mountPt))
+              Just (Just mountPt, _, foreground) -> fuseMainReal False foreground ops handler pArgs mountPt))
        ((\errStr -> when (not $ null errStr) (putStrLn errStr) >> exitFailure) . ioeGetErrorString)
 
+-- | Inline version of 'fuseMain'. This prevents exiting and keeps the fuse
+-- file system in the same process (and therefore memory space)
+fuseMainInline :: Exception e => FuseOperations fh -> (e -> IO Errno) -> IO ()
+fuseMainInline ops handler = do
+    -- this used to be implemented using libfuse's fuse_main. Doing this will fork()
+    -- from C behind the GHC runtime's back, which deadlocks in GHC 6.8.
+    -- Instead, we reimplement fuse_main in Haskell using the forkProcess and the
+    -- lower-level fuse_new/fuse_loop_mt API.
+    prog <- getProgName
+    args <- getArgs
+    fuseRunInline prog args ops handler
+
+fuseRunInline :: String -> [String] -> Exception e => FuseOperations fh -> (e -> IO Errno) -> IO ()
+fuseRunInline prog args ops handler =
+    catch (withFuseArgs prog args $ \pArgs -> do
+        cmd <-fuseParseCommandLine pArgs
+        case cmd of
+            Nothing -> fail ""
+            Just (Nothing, _, _) -> fail "Usage error: mount point required"
+            Just (Just mountPt, _, foreground) -> fuseMainReal True foreground ops handler pArgs mountPt)
+       ((\errStr -> when (not $ null errStr) (putStrLn errStr)) . ioeGetErrorString)
 -----------------------------------------------------------------------------
 -- Miscellaneous utilities
 
@@ -922,6 +964,9 @@ foreign import ccall safe "fuse.h fuse_opt_free_args"
 
 foreign import ccall safe "fuse.h fuse_loop_mt"
     fuse_loop_mt :: Ptr CStructFuse -> IO Int
+
+foreign import ccall safe "fuse.h fuse_loop"
+    fuse_loop :: Ptr CStructFuse -> IO Int
 
 data CFuseContext
 foreign import ccall safe "fuse.h fuse_get_context"
