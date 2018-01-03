@@ -764,7 +764,11 @@ fuseParseCommandLine pArgs =
 -- Mimic's daemon()s use of _exit() instead of exit(); we depend on this in fuseMainReal,
 -- because otherwise we'll unmount the filesystem when the foreground process exits.
 daemon :: IO a -> IO a
-daemon f = forkProcess d >> exitImmediately ExitSuccess >> undefined
+-- exitImmediately never returns. This `error` is only here to please the
+-- typechecker. 
+-- It's a dirty hack, but I think the problem is in the posix package, not
+-- making this IO a instead of IO ()
+daemon f = forkProcess d >> exitImmediately ExitSuccess >> error "This is unreachable code"
   where d = catch (do createSession
                       changeWorkingDirectory "/"
                       -- need to open /dev/null twice because hDuplicateTo can't dup a
@@ -855,7 +859,11 @@ fuseMainReal inline foreground ops handler pArgs mountPt =
         (fuse_mount cMountPt pArgs)
         (const $ fuse_unmount cMountPt nullPtr) $ \pFuseChan -> do
             if pFuseChan == nullPtr
-               then if isJust inline then pure undefined else exitFailure
+                then case inline of
+                    Nothing -> exitFailure
+                    -- TODO: Add some way to notify the called application
+                    -- whether fuse is up, or not
+                    Just (_, _, act) -> act
                 else withStructFuse pFuseChan pArgs ops handler strategy
     -- here, we're finally inside the daemon process, we can run the main loop
     where procMain pFuse = do
@@ -867,11 +875,9 @@ fuseMainReal inline foreground ops handler pArgs mountPt =
             -- This doesn't happen with GHC's signal handling in place.
             withSignalHandlers (fuse_session_exit session) $ do
                 retVal <- fuse_loop_mt pFuse
-                when (isNothing inline) $
-                    if retVal == 1
-                        then exitWith ExitSuccess
-                        else exitFailure
-                pure undefined
+                if retVal == 1
+                    then exitWith ExitSuccess
+                    else exitFailure
 
 -- | Main function of FUSE.
 -- This is all that has to be called from the @main@ function. On top of
