@@ -823,7 +823,7 @@ forAllChans session fun cont = forAllChans' session fun nullPtr
 runInline
     :: (Fd -> IO () -> IO b)
     -> (b -> IO ())
-    -> IO a
+    -> (Either String () -> IO a)
     -> Ptr CStructFuse
     -> IO a
 runInline register unregister act pFuse = bracket (callocBytes #{size struct fuse_buf}) free $ \buf -> do
@@ -834,7 +834,7 @@ runInline register unregister act pFuse = bracket (callocBytes #{size struct fus
                 (register fd (handleOnce session buf chan))
                 unregister
                 (const cont)
-    ret <- forAllChans session registerChan $ withSignalHandlers (fuse_session_exit session) act
+    ret <- forAllChans session registerChan $ withSignalHandlers (fuse_session_exit session) (act $ Right ())
     fuse_session_exit session
     pure ret
 
@@ -842,7 +842,7 @@ runInline register unregister act pFuse = bracket (callocBytes #{size struct fus
 -- Mounts the filesystem, forks, and then starts fuse
 fuseMainReal
     :: Exception e
-    => Maybe (Fd -> IO () -> IO b, b -> IO (), IO a)
+    => Maybe (Fd -> IO () -> IO b, b -> IO (), Either String () -> IO a)
     -> Bool
     -> FuseOperations fh
     -> (e -> IO Errno)
@@ -863,7 +863,7 @@ fuseMainReal inline foreground ops handler pArgs mountPt =
                     Nothing -> exitFailure
                     -- TODO: Add some way to notify the called application
                     -- whether fuse is up, or not
-                    Just (_, _, act) -> act
+                    Just (_, _, act) -> act $ Left "Failed to create fuse handle"
                 else withStructFuse pFuseChan pArgs ops handler strategy
     -- here, we're finally inside the daemon process, we can run the main loop
     where procMain pFuse = do
@@ -925,7 +925,7 @@ fuseRun prog args ops handler =
 
 -- | Inline version of 'fuseMain'. This prevents exiting and keeps the fuse
 -- file system in the same process (and therefore memory space)
-fuseMainInline :: Exception e => (Fd -> IO () -> IO b) -> (b -> IO ()) -> IO () -> FuseOperations fh -> (e -> IO Errno) -> IO ()
+fuseMainInline :: Exception e => (Fd -> IO () -> IO b) -> (b -> IO ()) -> (Either String () -> IO a) -> FuseOperations fh -> (e -> IO Errno) -> IO a
 fuseMainInline register unregister act ops handler = do
     -- this used to be implemented using libfuse's fuse_main. Doing this will fork()
     -- from C behind the GHC runtime's back, which deadlocks in GHC 6.8.
@@ -935,15 +935,15 @@ fuseMainInline register unregister act ops handler = do
     args <- getArgs
     fuseRunInline register unregister act prog args ops handler
 
-fuseRunInline :: Exception e => (Fd -> IO () -> IO b) -> (b -> IO ()) -> IO a -> String -> [String] -> FuseOperations fh -> (e -> IO Errno) -> IO a
+fuseRunInline :: Exception e => (Fd -> IO () -> IO b) -> (b -> IO ()) -> (Either String () -> IO a) -> String -> [String] -> FuseOperations fh -> (e -> IO Errno) -> IO a
 fuseRunInline register unregister act prog args ops handler =
     catch (withFuseArgs prog args $ \pArgs -> do
         cmd <-fuseParseCommandLine pArgs
         case cmd of
-            Nothing -> fail ""
-            Just (Nothing, _, _) -> fail "Usage error: mount point required"
+            Nothing -> act $ Left ""
+            Just (Nothing, _, _) -> act $ Left "Usage error: mount point required"
             Just (Just mountPt, _, foreground) -> fuseMainReal (Just (register, unregister, act)) foreground ops handler pArgs mountPt)
-       (fail . ioeGetErrorString)
+       (act . Left . ioeGetErrorString)
 -----------------------------------------------------------------------------
 -- Miscellaneous utilities
 
