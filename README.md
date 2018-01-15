@@ -33,7 +33,7 @@ Can either be handled via [Hackage](http://hackage.haskell.org/packages/search?t
 
 ```
 cabal unpack hfuse
-cd HFuse-0.2.4.4
+cd HFuse-0.2.5.0
 cabal sandbox init
 cabal install --only-dependencies
 cabal install -fdeveloper
