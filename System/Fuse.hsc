@@ -381,7 +381,7 @@ data FuseOperations fh = FuseOperations
         fuseRelease :: FilePath -> fh -> IO (),
 
         -- | Implements @fsync(2)@.
-        fuseSynchronizeFile :: FilePath -> SyncType -> IO Errno,
+        fuseSynchronizeFile :: FilePath -> fh -> SyncType -> IO Errno,
 
         -- | Implements @opendir(3)@.  This method should check if the open
         --   operation is permitted for this directory.
@@ -435,7 +435,7 @@ defaultFuseOps =
                    , fuseGetFileSystemStats = \_ -> return (Left eNOSYS)
                    , fuseFlush = \_ _ -> return eOK
                    , fuseRelease = \_ _ -> return ()
-                   , fuseSynchronizeFile = \_ _ -> return eNOSYS
+                   , fuseSynchronizeFile = \_ _ _ -> return eNOSYS
                    , fuseOpenDirectory = \_ -> return eNOSYS
                    , fuseReadDirectory = \_ -> return (Left eNOSYS)
                    , fuseReleaseDirectory = \_ -> return eNOSYS
@@ -674,8 +674,9 @@ withStructFuse pFuseChan pArgs ops handler f =
           wrapFSync :: CFSync
           wrapFSync pFilePath isFullSync pFuseFileInfo = handle fuseHandler $
               do filePath <- peekCString pFilePath
+                 cVal     <- getFH pFuseFileInfo
                  (Errno errno) <- (fuseSynchronizeFile ops)
-                                      filePath (toEnum isFullSync)
+                                 filePath cVal (toEnum isFullSync)
                  return (- errno)
           wrapOpenDir :: COpenDir
           wrapOpenDir pFilePath pFuseFileInfo = handle fuseHandler $
