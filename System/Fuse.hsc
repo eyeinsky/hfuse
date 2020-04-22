@@ -388,19 +388,19 @@ data FuseOperations fh dh = FuseOperations
 
         -- | Implements @opendir(3)@.  This method should check if the open
         --   operation is permitted for this directory.
-        fuseOpenDirectory :: FilePath -> IO Errno,
+        fuseOpenDirectory :: FilePath -> IO (Either Errno dh),
 
         -- | Implements @readdir(3)@.  The entire contents of the directory
         --   should be returned as a list of tuples (corresponding to the first
         --   mode of operation documented in @fuse.h@).
-        fuseReadDirectory :: FilePath -> IO (Either Errno [(FilePath, FileStat)]),
+        fuseReadDirectory :: FilePath -> dh -> IO (Either Errno [(FilePath, FileStat)]),
 
         -- | Implements @closedir(3)@.
-        fuseReleaseDirectory :: FilePath -> IO Errno,
+        fuseReleaseDirectory :: FilePath -> dh -> IO Errno,
 
         -- | Synchronize the directory's contents; analogous to
         --   'fuseSynchronizeFile'.
-        fuseSynchronizeDirectory :: FilePath -> SyncType -> IO Errno,
+        fuseSynchronizeDirectory :: FilePath -> dh -> SyncType -> IO Errno,
 
         -- | Check file access permissions; this will be called for the
         --   access() system call.  If the @default_permissions@ mount option
@@ -439,10 +439,10 @@ defaultFuseOps =
                    , fuseFlush = \_ _ -> return eOK
                    , fuseRelease = \_ _ -> return ()
                    , fuseSynchronizeFile = \_ _ _ -> return eNOSYS
-                   , fuseOpenDirectory = \_ -> return eNOSYS
-                   , fuseReadDirectory = \_ -> return (Left eNOSYS)
-                   , fuseReleaseDirectory = \_ -> return eNOSYS
-                   , fuseSynchronizeDirectory = \_ _ -> return eNOSYS
+                   , fuseOpenDirectory = \_ -> return (Left eNOSYS)
+                   , fuseReadDirectory = \_ _ -> return (Left eNOSYS)
+                   , fuseReleaseDirectory = \_ _ -> return eNOSYS
+                   , fuseSynchronizeDirectory = \_ _ _ -> return eNOSYS
                    , fuseAccess = \_ _ -> return eNOSYS
                    , fuseInit = return ()
                    , fuseDestroy = return ()
@@ -685,13 +685,19 @@ withStructFuse pFuseChan pArgs ops handler f =
           wrapOpenDir pFilePath pFuseFileInfo = handle fuseHandler $
               do filePath <- peekCString pFilePath
                  -- XXX: Should we pass flags from pFuseFileInfo?
-                 (Errno errno) <- (fuseOpenDirectory ops) filePath
-                 return (- errno)
+                 result <- (fuseOpenDirectory ops) filePath
+                 case result of
+                   Left (Errno errno) -> return (- errno)
+                   Right cval         -> do
+                     sptr <- newStablePtr cval
+                     (#poke struct fuse_file_info, fh) pFuseFileInfo $ castStablePtrToPtr sptr
+                     return okErrno
 
           wrapReadDir :: CReadDir
           wrapReadDir pFilePath pBuf pFillDir off pFuseFileInfo =
             handle fuseHandler $ do
               filePath <- peekCString pFilePath
+              cVal     <- getFH pFuseFileInfo
               let fillDir = mkFillDir pFillDir
               let filler :: (FilePath, FileStat) -> IO ()
                   filler (fileName, fileStat) =
@@ -702,21 +708,24 @@ withStructFuse pFuseChan pArgs ops handler f =
                            -- Ignoring return value of pFillDir, namely 1 if
                            -- pBuff is full.
                            return ()
-              eitherContents <- (fuseReadDirectory ops) filePath -- XXX fileinfo
+              eitherContents <- (fuseReadDirectory ops) filePath cVal -- XXX fileinfo
               case eitherContents of
                 Left (Errno errno) -> return (- errno)
                 Right contents     -> mapM filler contents >> return okErrno
 
           wrapReleaseDir :: CReleaseDir
-          wrapReleaseDir pFilePath pFuseFileInfo = handle fuseHandler $
+          wrapReleaseDir pFilePath pFuseFileInfo = E.finally (handle fuseHandler $
               do filePath <- peekCString pFilePath
-                 (Errno errno) <- (fuseReleaseDirectory ops) filePath
+                 cVal     <- getFH pFuseFileInfo
+                 (Errno errno) <- (fuseReleaseDirectory ops) filePath cVal
                  return (- errno)
+                 ) (delFH pFuseFileInfo)
           wrapFSyncDir :: CFSyncDir
           wrapFSyncDir pFilePath isFullSync pFuseFileInfo = handle fuseHandler $
               do filePath <- peekCString pFilePath
+                 cVal     <- getFH pFuseFileInfo
                  (Errno errno) <- (fuseSynchronizeDirectory ops)
-                                      filePath (toEnum isFullSync)
+                                 filePath cVal (toEnum isFullSync)
                  return (- errno)
           wrapAccess :: CAccess
           wrapAccess pFilePath at = handle fuseHandler $
