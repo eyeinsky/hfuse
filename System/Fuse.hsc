@@ -290,7 +290,10 @@ getFuseContext =
 --
 --   @fh@ is the file handle type returned by 'fuseOpen' and subsequently passed
 --   to all other file operations.
-data FuseOperations fh = FuseOperations
+--
+--   @dh@ is the directory handle type returned by 'fuseOpenDirectory' and
+--   subsequently passed to all other directory operations.
+data FuseOperations fh dh = FuseOperations
       { -- | Implements 'System.Posix.Files.getSymbolicLinkStatus' operation
         --   (POSIX @lstat(2)@).
         fuseGetFileStat :: FilePath -> IO (Either Errno FileStat),
@@ -414,7 +417,7 @@ data FuseOperations fh = FuseOperations
       }
 
 -- | Empty \/ default versions of the FUSE operations.
-defaultFuseOps :: FuseOperations fh
+defaultFuseOps :: FuseOperations fh dh
 defaultFuseOps =
     FuseOperations { fuseGetFileStat = \_ -> return (Left eNOSYS)
                    , fuseReadSymbolicLink = \_ -> return (Left eNOSYS)
@@ -459,7 +462,7 @@ withFuseArgs prog args f =
                        finally (f fuseArgs)
                                (fuse_opt_free_args fuseArgs))))
 
-withStructFuse :: forall e fh b. Exception e => Ptr CFuseChan -> Ptr CFuseArgs -> FuseOperations fh -> (e -> IO Errno) -> (Ptr CStructFuse -> IO b) -> IO b
+withStructFuse :: forall e fh dh b. Exception e => Ptr CFuseChan -> Ptr CFuseArgs -> FuseOperations fh dh -> (e -> IO Errno) -> (Ptr CStructFuse -> IO b) -> IO b
 withStructFuse pFuseChan pArgs ops handler f =
     allocaBytes (#size struct fuse_operations) $ \ pOps -> do
       bzero pOps (#size struct fuse_operations)
@@ -845,7 +848,7 @@ fuseMainReal
     :: Exception e
     => Maybe (Fd -> IO () -> IO b, b -> IO (), Either String () -> IO a)
     -> Bool
-    -> FuseOperations fh
+    -> FuseOperations fh dh
     -> (e -> IO Errno)
     -> Ptr CFuseArgs
     -> String
@@ -903,7 +906,7 @@ fuseMainReal inline foreground ops handler pArgs mountPt =
 --   * registers the operations ;
 --
 --   * calls FUSE event loop.
-fuseMain :: Exception e => FuseOperations fh -> (e -> IO Errno) -> IO ()
+fuseMain :: Exception e => FuseOperations fh dh -> (e -> IO Errno) -> IO ()
 fuseMain ops handler = do
     -- this used to be implemented using libfuse's fuse_main. Doing this will fork()
     -- from C behind the GHC runtime's back, which deadlocks in GHC 6.8.
@@ -913,7 +916,7 @@ fuseMain ops handler = do
     args <- getArgs
     fuseRun prog args ops handler
 
-fuseRun :: String -> [String] -> Exception e => FuseOperations fh -> (e -> IO Errno) -> IO ()
+fuseRun :: String -> [String] -> Exception e => FuseOperations fh dh -> (e -> IO Errno) -> IO ()
 fuseRun prog args ops handler =
     catch
        (withFuseArgs prog args (\pArgs ->
@@ -926,7 +929,7 @@ fuseRun prog args ops handler =
 
 -- | Inline version of 'fuseMain'. This prevents exiting and keeps the fuse
 -- file system in the same process (and therefore memory space)
-fuseMainInline :: Exception e => (Fd -> IO () -> IO b) -> (b -> IO ()) -> (Either String () -> IO a) -> FuseOperations fh -> (e -> IO Errno) -> IO a
+fuseMainInline :: Exception e => (Fd -> IO () -> IO b) -> (b -> IO ()) -> (Either String () -> IO a) -> FuseOperations fh dh -> (e -> IO Errno) -> IO a
 fuseMainInline register unregister act ops handler = do
     -- this used to be implemented using libfuse's fuse_main. Doing this will fork()
     -- from C behind the GHC runtime's back, which deadlocks in GHC 6.8.
@@ -936,7 +939,7 @@ fuseMainInline register unregister act ops handler = do
     args <- getArgs
     fuseRunInline register unregister act prog args ops handler
 
-fuseRunInline :: Exception e => (Fd -> IO () -> IO b) -> (b -> IO ()) -> (Either String () -> IO a) -> String -> [String] -> FuseOperations fh -> (e -> IO Errno) -> IO a
+fuseRunInline :: Exception e => (Fd -> IO () -> IO b) -> (b -> IO ()) -> (Either String () -> IO a) -> String -> [String] -> FuseOperations fh dh -> (e -> IO Errno) -> IO a
 fuseRunInline register unregister act prog args ops handler =
     catch (withFuseArgs prog args $ \pArgs -> do
         cmd <-fuseParseCommandLine pArgs
