@@ -29,7 +29,7 @@ cabal install hfuse
 
 **Installation for development**
 
-Can either be handled via [Hackage](http://hackage.haskell.org/packages/search?terms=hfuse)
+Can either be handled via [Hackage](https://hackage.haskell.org/packages/search?terms=hfuse)
 
 ```
 cabal unpack hfuse
@@ -61,7 +61,7 @@ To get a feel for HFuse, there are a number of example applications.  They can b
 
 ## Examples
 
-[HelloFS](./examples/HelloFS.hs) is as basic as you get.  Haskell version of the canonical [example](http://fuse.sourceforge.net/helloworld.html) from the FUSE project.  Once compiled here is how you run HelloFS.
+[HelloFS](./examples/HelloFS.hs) is as basic as you get.  Haskell version of the canonical [example](https://github.com/libfuse/libfuse/blob/master/example/hello.c) from the FUSE project.  Once compiled here is how you run HelloFS.
 
 ```
 $ mkdir ~/fuseTest
@@ -83,9 +83,9 @@ $ fusermount -u ~/fuseTest
 
 ## Other Samples
 
-There are other projects on hackage which use HFuse as a dependency.  Check [these](http://packdeps.haskellers.com/reverse/HFuse) out for a possibly richer experience than what is included with the [examples](./examples) folder.
+There are other projects on hackage which use HFuse as a dependency.  Check [these](https://packdeps.haskellers.com/reverse/HFuse) out for a possibly richer experience than what is included with the [examples](./examples) folder.
 
-If you lack for inspiration the FUSE [Wiki](http://sourceforge.net/p/fuse/wiki/FileSystems/) have amassed quite the list of links to downstream projects.
+If you lack for inspiration the FUSE [Wiki][4] have amassed quite the list of links to downstream projects.
 
 ## Contributions
 
@@ -101,6 +101,7 @@ I would like to create the following examples:
 - VBoxFS.hs := Mount VirtualBox disks as filesystem
 - SSHFS.hs := SSH file system
 
-[1]: https://github.com/m15k/google-drive-api/issues        "Google-Drive-API Library Issues"
-[2]: https://github.com/m15k/google-drive-api               "Google-Drive-API Library"
-[3]: http://www.haskell.org/cabal/users-guide/developing-packages.html#configurations "Cabal Configurations"
+[1]: https://github.com/m15k/google-drive-api/issues  "Google-Drive-API Library Issues"
+[2]: https://github.com/m15k/google-drive-api  "Google-Drive-API Library"
+[3]: https://www.haskell.org/cabal/users-guide/developing-packages.html#configurations  "Cabal Configurations"
+[4]: https://github.com/libfuse/libfuse/wiki/Filesystems  "Libfuse-Wiki Examples"
