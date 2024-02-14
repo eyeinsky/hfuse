@@ -290,7 +290,10 @@ getFuseContext =
 --
 --   @fh@ is the file handle type returned by 'fuseOpen' and subsequently passed
 --   to all other file operations.
-data FuseOperations fh = FuseOperations
+--
+--   @dh@ is the directory handle type returned by 'fuseOpenDirectory' and
+--   subsequently passed to all other directory operations.
+data FuseOperations fh dh = FuseOperations
       { -- | Implements 'System.Posix.Files.getSymbolicLinkStatus' operation
         --   (POSIX @lstat(2)@).
         fuseGetFileStat :: FilePath -> IO (Either Errno FileStat),
@@ -381,23 +384,23 @@ data FuseOperations fh = FuseOperations
         fuseRelease :: FilePath -> fh -> IO (),
 
         -- | Implements @fsync(2)@.
-        fuseSynchronizeFile :: FilePath -> SyncType -> IO Errno,
+        fuseSynchronizeFile :: FilePath -> fh -> SyncType -> IO Errno,
 
         -- | Implements @opendir(3)@.  This method should check if the open
         --   operation is permitted for this directory.
-        fuseOpenDirectory :: FilePath -> IO Errno,
+        fuseOpenDirectory :: FilePath -> IO (Either Errno dh),
 
         -- | Implements @readdir(3)@.  The entire contents of the directory
         --   should be returned as a list of tuples (corresponding to the first
         --   mode of operation documented in @fuse.h@).
-        fuseReadDirectory :: FilePath -> IO (Either Errno [(FilePath, FileStat)]),
+        fuseReadDirectory :: FilePath -> dh -> IO (Either Errno [(FilePath, FileStat)]),
 
         -- | Implements @closedir(3)@.
-        fuseReleaseDirectory :: FilePath -> IO Errno,
+        fuseReleaseDirectory :: FilePath -> dh -> IO Errno,
 
         -- | Synchronize the directory's contents; analogous to
         --   'fuseSynchronizeFile'.
-        fuseSynchronizeDirectory :: FilePath -> SyncType -> IO Errno,
+        fuseSynchronizeDirectory :: FilePath -> dh -> SyncType -> IO Errno,
 
         -- | Check file access permissions; this will be called for the
         --   access() system call.  If the @default_permissions@ mount option
@@ -414,7 +417,7 @@ data FuseOperations fh = FuseOperations
       }
 
 -- | Empty \/ default versions of the FUSE operations.
-defaultFuseOps :: FuseOperations fh
+defaultFuseOps :: FuseOperations fh dh
 defaultFuseOps =
     FuseOperations { fuseGetFileStat = \_ -> return (Left eNOSYS)
                    , fuseReadSymbolicLink = \_ -> return (Left eNOSYS)
@@ -435,11 +438,11 @@ defaultFuseOps =
                    , fuseGetFileSystemStats = \_ -> return (Left eNOSYS)
                    , fuseFlush = \_ _ -> return eOK
                    , fuseRelease = \_ _ -> return ()
-                   , fuseSynchronizeFile = \_ _ -> return eNOSYS
-                   , fuseOpenDirectory = \_ -> return eNOSYS
-                   , fuseReadDirectory = \_ -> return (Left eNOSYS)
-                   , fuseReleaseDirectory = \_ -> return eNOSYS
-                   , fuseSynchronizeDirectory = \_ _ -> return eNOSYS
+                   , fuseSynchronizeFile = \_ _ _ -> return eNOSYS
+                   , fuseOpenDirectory = \_ -> return (Left eNOSYS)
+                   , fuseReadDirectory = \_ _ -> return (Left eNOSYS)
+                   , fuseReleaseDirectory = \_ _ -> return eNOSYS
+                   , fuseSynchronizeDirectory = \_ _ _ -> return eNOSYS
                    , fuseAccess = \_ _ -> return eNOSYS
                    , fuseInit = return ()
                    , fuseDestroy = return ()
@@ -459,7 +462,7 @@ withFuseArgs prog args f =
                        finally (f fuseArgs)
                                (fuse_opt_free_args fuseArgs))))
 
-withStructFuse :: forall e fh b. Exception e => Ptr CFuseChan -> Ptr CFuseArgs -> FuseOperations fh -> (e -> IO Errno) -> (Ptr CStructFuse -> IO b) -> IO b
+withStructFuse :: forall e fh dh b. Exception e => Ptr CFuseChan -> Ptr CFuseArgs -> FuseOperations fh dh -> (e -> IO Errno) -> (Ptr CStructFuse -> IO b) -> IO b
 withStructFuse pFuseChan pArgs ops handler f =
     allocaBytes (#size struct fuse_operations) $ \ pOps -> do
       bzero pOps (#size struct fuse_operations)
@@ -674,20 +677,27 @@ withStructFuse pFuseChan pArgs ops handler f =
           wrapFSync :: CFSync
           wrapFSync pFilePath isFullSync pFuseFileInfo = handle fuseHandler $
               do filePath <- peekCString pFilePath
+                 cVal     <- getFH pFuseFileInfo
                  (Errno errno) <- (fuseSynchronizeFile ops)
-                                      filePath (toEnum isFullSync)
+                                 filePath cVal (toEnum isFullSync)
                  return (- errno)
           wrapOpenDir :: COpenDir
           wrapOpenDir pFilePath pFuseFileInfo = handle fuseHandler $
               do filePath <- peekCString pFilePath
                  -- XXX: Should we pass flags from pFuseFileInfo?
-                 (Errno errno) <- (fuseOpenDirectory ops) filePath
-                 return (- errno)
+                 result <- (fuseOpenDirectory ops) filePath
+                 case result of
+                   Left (Errno errno) -> return (- errno)
+                   Right cval         -> do
+                     sptr <- newStablePtr cval
+                     (#poke struct fuse_file_info, fh) pFuseFileInfo $ castStablePtrToPtr sptr
+                     return okErrno
 
           wrapReadDir :: CReadDir
           wrapReadDir pFilePath pBuf pFillDir off pFuseFileInfo =
             handle fuseHandler $ do
               filePath <- peekCString pFilePath
+              cVal     <- getFH pFuseFileInfo
               let fillDir = mkFillDir pFillDir
               let filler :: (FilePath, FileStat) -> IO ()
                   filler (fileName, fileStat) =
@@ -698,21 +708,24 @@ withStructFuse pFuseChan pArgs ops handler f =
                            -- Ignoring return value of pFillDir, namely 1 if
                            -- pBuff is full.
                            return ()
-              eitherContents <- (fuseReadDirectory ops) filePath -- XXX fileinfo
+              eitherContents <- (fuseReadDirectory ops) filePath cVal -- XXX fileinfo
               case eitherContents of
                 Left (Errno errno) -> return (- errno)
                 Right contents     -> mapM filler contents >> return okErrno
 
           wrapReleaseDir :: CReleaseDir
-          wrapReleaseDir pFilePath pFuseFileInfo = handle fuseHandler $
+          wrapReleaseDir pFilePath pFuseFileInfo = E.finally (handle fuseHandler $
               do filePath <- peekCString pFilePath
-                 (Errno errno) <- (fuseReleaseDirectory ops) filePath
+                 cVal     <- getFH pFuseFileInfo
+                 (Errno errno) <- (fuseReleaseDirectory ops) filePath cVal
                  return (- errno)
+                 ) (delFH pFuseFileInfo)
           wrapFSyncDir :: CFSyncDir
           wrapFSyncDir pFilePath isFullSync pFuseFileInfo = handle fuseHandler $
               do filePath <- peekCString pFilePath
+                 cVal     <- getFH pFuseFileInfo
                  (Errno errno) <- (fuseSynchronizeDirectory ops)
-                                      filePath (toEnum isFullSync)
+                                 filePath cVal (toEnum isFullSync)
                  return (- errno)
           wrapAccess :: CAccess
           wrapAccess pFilePath at = handle fuseHandler $
@@ -844,7 +857,7 @@ fuseMainReal
     :: Exception e
     => Maybe (Fd -> IO () -> IO b, b -> IO (), Either String () -> IO a)
     -> Bool
-    -> FuseOperations fh
+    -> FuseOperations fh dh
     -> (e -> IO Errno)
     -> Ptr CFuseArgs
     -> String
@@ -902,7 +915,7 @@ fuseMainReal inline foreground ops handler pArgs mountPt =
 --   * registers the operations ;
 --
 --   * calls FUSE event loop.
-fuseMain :: Exception e => FuseOperations fh -> (e -> IO Errno) -> IO ()
+fuseMain :: Exception e => FuseOperations fh dh -> (e -> IO Errno) -> IO ()
 fuseMain ops handler = do
     -- this used to be implemented using libfuse's fuse_main. Doing this will fork()
     -- from C behind the GHC runtime's back, which deadlocks in GHC 6.8.
@@ -912,7 +925,7 @@ fuseMain ops handler = do
     args <- getArgs
     fuseRun prog args ops handler
 
-fuseRun :: String -> [String] -> Exception e => FuseOperations fh -> (e -> IO Errno) -> IO ()
+fuseRun :: String -> [String] -> Exception e => FuseOperations fh dh -> (e -> IO Errno) -> IO ()
 fuseRun prog args ops handler =
     catch
        (withFuseArgs prog args (\pArgs ->
@@ -925,7 +938,7 @@ fuseRun prog args ops handler =
 
 -- | Inline version of 'fuseMain'. This prevents exiting and keeps the fuse
 -- file system in the same process (and therefore memory space)
-fuseMainInline :: Exception e => (Fd -> IO () -> IO b) -> (b -> IO ()) -> (Either String () -> IO a) -> FuseOperations fh -> (e -> IO Errno) -> IO a
+fuseMainInline :: Exception e => (Fd -> IO () -> IO b) -> (b -> IO ()) -> (Either String () -> IO a) -> FuseOperations fh dh -> (e -> IO Errno) -> IO a
 fuseMainInline register unregister act ops handler = do
     -- this used to be implemented using libfuse's fuse_main. Doing this will fork()
     -- from C behind the GHC runtime's back, which deadlocks in GHC 6.8.
@@ -935,7 +948,7 @@ fuseMainInline register unregister act ops handler = do
     args <- getArgs
     fuseRunInline register unregister act prog args ops handler
 
-fuseRunInline :: Exception e => (Fd -> IO () -> IO b) -> (b -> IO ()) -> (Either String () -> IO a) -> String -> [String] -> FuseOperations fh -> (e -> IO Errno) -> IO a
+fuseRunInline :: Exception e => (Fd -> IO () -> IO b) -> (b -> IO ()) -> (Either String () -> IO a) -> String -> [String] -> FuseOperations fh dh -> (e -> IO Errno) -> IO a
 fuseRunInline register unregister act prog args ops handler =
     catch (withFuseArgs prog args $ \pArgs -> do
         cmd <-fuseParseCommandLine pArgs
